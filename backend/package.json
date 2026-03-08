@@ -6,6 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
     "seed": "node src/seedTestData.js",
     "seed:doctor": "node src/seedDoctor.js",
     "test:migrate": "node src/migrations/test_migrate_timeSlot_integration.js"
