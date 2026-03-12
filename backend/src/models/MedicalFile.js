@@ -42,6 +42,10 @@ const medicalFileSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    cloudinaryPublicId: {
+      type: String,
+      required: false,
+    },
     title: {
       type: String,
       required: false,

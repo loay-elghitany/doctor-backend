@@ -7,7 +7,7 @@ import { debugLog, debugError } from "../utils/debug.js";
 import multer from "multer";
 import path from "path";
 import mime from "mime-types";
-import storageUtils from "../utils/medicalFileStorage.js";
+import StorageAdapter from "../services/storageAdapter.js";
 import fileValidation from "../utils/fileValidation.js";
 import AuditLog from "../models/AuditLog.js";
 import mongoose from "mongoose";
@@ -20,7 +20,7 @@ const MAX_FILE_SIZE = parseInt(
 ); // 10MB default
 
 const upload = multer({
-  storage: storageUtils.getDiskStorage(multer),
+  storage: StorageAdapter.getStorage(),
   limits: { fileSize: MAX_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     try {
@@ -131,7 +131,7 @@ export const uploadMedicalFile = [
       if (patientTotalBytes + incomingSize > maxPerPatientMB * bytesPerMB) {
         // remove stored temp file
         try {
-          storageUtils.deleteFile(storedName);
+          await StorageAdapter.deleteFile(storedName);
         } catch (_) {}
         return res.status(400).json({
           success: false,
@@ -142,7 +142,7 @@ export const uploadMedicalFile = [
 
       if (doctorTotalBytes + incomingSize > maxPerDoctorMB * bytesPerMB) {
         try {
-          storageUtils.deleteFile(storedName);
+          await StorageAdapter.deleteFile(storedName);
         } catch (_) {}
         return res.status(400).json({
           success: false,
@@ -151,7 +151,8 @@ export const uploadMedicalFile = [
         });
       }
 
-      const fileUrl = `/api/medical-files/download/${storedName}`;
+      const fileUrl = file.path;
+      const cloudinaryPublicId = file.filename;
 
       const doc = await MedicalFile.create({
         patientId: patient._id,
@@ -159,7 +160,8 @@ export const uploadMedicalFile = [
         appointmentId: appointmentId || null,
         fileType,
         fileName: originalName,
-        storedName,
+        storedName: cloudinaryPublicId,
+        cloudinaryPublicId,
         fileSize: incomingSize,
         fileUrl,
         title: title || null,
@@ -440,7 +442,7 @@ export const downloadFileForPatient = async (req, res) => {
     const fileUrl = `/api/medical-files/download/${storedName}`;
 
     const record = await MedicalFile.findOne({
-      fileUrl,
+      storedName,
       patientId: patient._id,
       isDeleted: { $ne: true },
     });
@@ -449,28 +451,36 @@ export const downloadFileForPatient = async (req, res) => {
         .status(404)
         .json({ success: false, message: "File not found", data: null });
     }
-    const filePath = storageUtils.getFullPathForStoredName(storedName);
 
-    // Audit (non-blocking)
-    try {
-      AuditLog.create({
-        actorType: "Patient",
-        actorId: patient._id,
-        action: "medicalfile:downloaded",
-        resourceType: "MedicalFile",
-        resourceId: record._id,
-        meta: { fileName: record.fileName },
-      });
-    } catch (auditErr) {
-      debugError("downloadFileForPatient", "Audit failed", auditErr);
+    const downloadUrl = StorageAdapter.getDownloadUrl(record);
+
+    if (downloadUrl.startsWith("http")) {
+      return res.redirect(downloadUrl);
+    } else {
+      const filePath = StorageAdapter.getFullPathForStoredName(storedName);
+
+      // Audit (non-blocking)
+      try {
+        AuditLog.create({
+          actorType: "Patient",
+          actorId: patient._id,
+          action: "medicalfile:downloaded",
+          resourceType: "MedicalFile",
+          resourceId: record._id,
+          meta: { fileName: record.fileName },
+        });
+      } catch (auditErr) {
+        debugError("downloadFileForPatient", "Audit failed", auditErr);
+      }
+
+      const detected =
+        mime.lookup(record.fileName) || "application/octet-stream";
+      res.setHeader(
+        "Content-Type",
+        record.fileType === "pdf" ? "application/pdf" : detected,
+      );
+      return res.sendFile(filePath);
     }
-
-    const detected = mime.lookup(record.fileName) || "application/octet-stream";
-    res.setHeader(
-      "Content-Type",
-      record.fileType === "pdf" ? "application/pdf" : detected,
-    );
-    return res.sendFile(filePath);
   } catch (error) {
     debugError("downloadFileForPatient", "Download error", error);
     res
@@ -487,7 +497,7 @@ export const downloadFileForDoctor = async (req, res) => {
     const fileUrl = `/api/medical-files/download/${storedName}`;
 
     const record = await MedicalFile.findOne({
-      fileUrl,
+      storedName,
       isDeleted: { $ne: true },
     });
     if (!record) {
@@ -505,28 +515,34 @@ export const downloadFileForDoctor = async (req, res) => {
       });
     }
 
-    const filePath = storageUtils.getFullPathForStoredName(storedName);
+    const downloadUrl = StorageAdapter.getDownloadUrl(record);
 
-    try {
-      AuditLog.create({
-        actorType: "Doctor",
-        actorId: doctor._id,
-        action: "medicalfile:downloaded",
-        resourceType: "MedicalFile",
-        resourceId: record._id,
-        meta: { fileName: record.fileName },
-      });
-    } catch (auditErr) {
-      debugError("downloadFileForDoctor", "Audit failed", auditErr);
+    if (downloadUrl.startsWith("http")) {
+      return res.redirect(downloadUrl);
+    } else {
+      const filePath = StorageAdapter.getFullPathForStoredName(storedName);
+
+      try {
+        AuditLog.create({
+          actorType: "Doctor",
+          actorId: doctor._id,
+          action: "medicalfile:downloaded",
+          resourceType: "MedicalFile",
+          resourceId: record._id,
+          meta: { fileName: record.fileName },
+        });
+      } catch (auditErr) {
+        debugError("downloadFileForDoctor", "Audit failed", auditErr);
+      }
+
+      const detectedDoc =
+        mime.lookup(record.fileName) || "application/octet-stream";
+      res.setHeader(
+        "Content-Type",
+        record.fileType === "pdf" ? "application/pdf" : detectedDoc,
+      );
+      return res.sendFile(filePath);
     }
-
-    const detectedDoc =
-      mime.lookup(record.fileName) || "application/octet-stream";
-    res.setHeader(
-      "Content-Type",
-      record.fileType === "pdf" ? "application/pdf" : detectedDoc,
-    );
-    return res.sendFile(filePath);
   } catch (error) {
     debugError("downloadFileForDoctor", "Download error", error);
     res
@@ -584,32 +600,39 @@ export const downloadFileShared = async (req, res) => {
       });
     }
 
-    const filePath = storageUtils.getFullPathForStoredName(storedName);
+    const downloadUrl = StorageAdapter.getDownloadUrl(record);
 
-    try {
-      AuditLog.create({
-        actorType: user.role === "doctor" ? "Doctor" : "Patient",
-        actorId: user._id,
-        action: "medicalfile:downloaded",
-        resourceType: "MedicalFile",
-        resourceId: record._id,
-        meta: { fileName: record.fileName },
-      });
-    } catch (auditErr) {
-      debugError("downloadFileShared", "Audit failed", auditErr);
+    if (downloadUrl.startsWith("http")) {
+      return res.redirect(downloadUrl);
+    } else {
+      const filePath = StorageAdapter.getFullPathForStoredName(record.storedName);
+
+      try {
+        AuditLog.create({
+          actorType: user.role === "doctor" ? "Doctor" : "Patient",
+          actorId: user._id,
+          action: "medicalfile:downloaded",
+          resourceType: "MedicalFile",
+          resourceId: record._id,
+          meta: { fileName: record.fileName },
+        });
+      } catch (auditErr) {
+        debugError("downloadFileShared", "Audit failed", auditErr);
+      }
+
+      const detected =
+        mime.lookup(record.fileName) || "application/octet-stream";
+      res.setHeader(
+        "Content-Type",
+        record.fileType === "pdf" ? "application/pdf" : detected,
+      );
+      // suggest original filename for download
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${record.fileName.replace(/\"/g, '"')}"`,
+      );
+      return res.sendFile(filePath);
     }
-
-    const detected = mime.lookup(record.fileName) || "application/octet-stream";
-    res.setHeader(
-      "Content-Type",
-      record.fileType === "pdf" ? "application/pdf" : detected,
-    );
-    // suggest original filename for download
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename="${record.fileName.replace(/\"/g, '"')}"`,
-    );
-    return res.sendFile(filePath);
   } catch (error) {
     debugError("downloadFileShared", "Download error", error);
     res
