@@ -4,11 +4,14 @@ import {
   getMyMedicalFiles,
   getPatientFiles,
   getAppointmentFiles,
-  downloadFileForPatient,
-  downloadFileForDoctor,
-  downloadFileShared,
   softDeleteMedicalFile,
 } from "../controllers/medicalFileController.js";
+import {
+  downloadFileForPatient,
+  downloadFileForDoctor,
+  viewFileForPatient,
+  viewFileForDoctor,
+} from "../controllers/fileAccessController.js";
 import { protect, doctorProtect } from "../middleware/authMiddleware.js";
 import jwt from "jsonwebtoken";
 import Patient from "../models/Patient.js";
@@ -85,13 +88,15 @@ router.get("/patient/:patientId", doctorProtect, getPatientFiles);
 // Doctor: list files for an appointment
 router.get("/appointment/:appointmentId", doctorProtect, getAppointmentFiles);
 
-// Secure downloads (separate for patient/doctor to reuse existing auth middleware)
+// Secure downloads & views
 router.get("/download/patient/:storedName", protect, downloadFileForPatient);
 router.get(
   "/download/doctor/:storedName",
   doctorProtect,
   downloadFileForDoctor,
 );
+router.get("/view/patient/:storedName", protect, viewFileForPatient);
+router.get("/view/doctor/:storedName", doctorProtect, viewFileForDoctor);
 
 // Legacy/public link compatibility: support `/api/medical-files/download/:storedName`
 // This endpoint enforces auth and authorisation (patient or doctor) and protects
