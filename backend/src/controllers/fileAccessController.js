@@ -18,11 +18,16 @@ const doctorHasAccessToPatient = async (doctorId, patientId) => {
 
 const handleFileRequest = async (req, res, disposition) => {
   const user = req.user;
-  const { storedName } = req.params;
+  const { storedName: rawStoredName } = req.params;
   const isDoctor = user.role === "doctor";
 
+  // Extract the file identifier from the path, if one is provided
+  const identifier = rawStoredName.includes("/")
+    ? rawStoredName.split("/").pop()
+    : rawStoredName;
+
   try {
-    const query = { storedName, isDeleted: { $ne: true } };
+    const query = { storedName: identifier, isDeleted: { $ne: true } };
     if (!isDoctor) {
       query.patientId = user._id;
     }
@@ -48,7 +53,9 @@ const handleFileRequest = async (req, res, disposition) => {
       AuditLog.create({
         actorType: isDoctor ? "Doctor" : "Patient",
         actorId: user._id,
-        action: `medicalfile:${disposition === "inline" ? "viewed" : "downloaded"}`,
+        action: `medicalfile:${
+          disposition === "inline" ? "viewed" : "downloaded"
+        }`,
         resourceType: "MedicalFile",
         resourceId: record._id,
         meta: { fileName: record.fileName },
@@ -63,9 +70,16 @@ const handleFileRequest = async (req, res, disposition) => {
 
     const localPath =
       process.env.NODE_ENV === "production"
-        ? path.resolve(process.env.UPLOADS_DIR || "/var/data/uploads", record.storedName)
-        : path.resolve(process.cwd(), "uploads", "medical-files", record.storedName);
-
+        ? path.resolve(
+            process.env.UPLOADS_DIR || "/var/data/uploads",
+            record.storedName,
+          )
+        : path.resolve(
+            process.cwd(),
+            "uploads",
+            "medical-files",
+            record.storedName,
+          );
 
     if (!fs.existsSync(localPath)) {
       debugError("File not found on disk:", localPath);
