@@ -24,7 +24,19 @@ dotenv.config();
 connectDB();
 
 const app = express();
-app.use(cors());
+// Enforce strict CORS policy for production
+const corsOptions = {
+  origin: "https://doctor-frontend-bay.vercel.app",
+  methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+  allowedHeaders: "Content-Type,Authorization",
+  credentials: true,
+};
+
+// Handle preflight requests before all other routes
+app.options("*", cors(corsOptions));
+
+// Apply main CORS middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
 app.use("/api/patients", patientRoutes);
