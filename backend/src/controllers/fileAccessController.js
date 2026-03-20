@@ -21,13 +21,22 @@ const handleFileRequest = async (req, res, disposition) => {
   const { storedName: rawStoredName } = req.params;
   const isDoctor = user.role === "doctor";
 
-  // Extract the file identifier from the path, if one is provided
-  const identifier = rawStoredName.includes("/")
-    ? rawStoredName.split("/").pop()
-    : rawStoredName;
+  // Helper to escape characters for use in a regex.
+  const escapeRegex = (string) =>
+    string.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+
+  // ALWAYS extract the file identifier (e.g., UUID) from the request parameter.
+  // This handles cases where the frontend sends a full path or just the identifier.
+  const fileIdentifier = rawStoredName.split("/").pop();
 
   try {
-    const query = { storedName: identifier, isDeleted: { $ne: true } };
+    // Use ONLY the extracted fileIdentifier to build the query.
+    const query = {
+      storedName: { $regex: `${escapeRegex(fileIdentifier)}$` },
+      isDeleted: { $ne: true },
+    };
+
+    // Enforce patient-level security for non-doctor roles.
     if (!isDoctor) {
       query.patientId = user._id;
     }
@@ -40,6 +49,7 @@ const handleFileRequest = async (req, res, disposition) => {
         .json({ success: false, message: "File not found" });
     }
 
+    // For doctors, enforce that they can only access files of their own patients.
     if (isDoctor) {
       if (!(await doctorHasAccessToPatient(user._id, record.patientId))) {
         return res
@@ -64,10 +74,12 @@ const handleFileRequest = async (req, res, disposition) => {
       debugError("handleFileRequest", "Audit failed", auditErr);
     }
 
+    // Redirect to remote URL if available (e.g., S3 pre-signed URL)
     if (record.fileUrl && record.fileUrl.startsWith("http")) {
       return res.redirect(record.fileUrl);
     }
 
+    // Construct local file path for streaming
     const localPath =
       process.env.NODE_ENV === "production"
         ? path.resolve(
