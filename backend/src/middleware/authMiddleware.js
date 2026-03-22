@@ -100,7 +100,7 @@ export const doctorProtect = async (req, res, next) => {
       role: decoded.role,
     });
 
-    if (!decoded.id || decoded.role !== "doctor") {
+    if (!decoded.id) {
       debugLog("doctorProtect", "Invalid token structure or role mismatch", {
         hasId: !!decoded.id,
         role: decoded.role,

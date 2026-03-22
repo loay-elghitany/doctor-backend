@@ -18,6 +18,7 @@ const StorageAdapter = {
           folder: folder,
           public_id: public_id,
           resource_type: "auto",
+          type: "upload",
         };
       },
     });
