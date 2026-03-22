@@ -14,7 +14,6 @@ const reportSchema = new mongoose.Schema(
     },
     title: { type: String, required: true }, // اسم التحليل أو التقرير
     description: { type: String }, // وصف إضافي
-    fileUrl: { type: String }, // لو فيه ملف PDF أو صورة
   },
   { timestamps: true },
 );

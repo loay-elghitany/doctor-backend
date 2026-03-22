@@ -16,7 +16,6 @@ import adminRoutes from "./routes/adminRoutes.js";
 import adminNotificationRoutes from "./routes/adminNotificationRoutes.js";
 import patientTimelineRoutes from "./routes/patientTimelineRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
-import medicalFileRoutes from "./routes/medicalFileRoutes.js";
 import patientTimelineFilteredRoutes from "./routes/patientTimelineFilteredRoutes.js";
 import doctorTimelineFilteredRoutes from "./routes/doctorTimelineFilteredRoutes.js";
 import notificationPreferencesRoutes from "./routes/notificationPreferencesRoutes.js";
@@ -30,7 +29,6 @@ connectDB();
 
 const app = express();
 
-
 // --- Core Middleware ---
 
 // 1. Production-Ready CORS Configuration
@@ -40,7 +38,7 @@ const corsOptions = {
   methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
   allowedHeaders: "Content-Type,Authorization",
   credentials: true,
-  optionsSuccessStatus: 200 // Ensures legacy browsers (and some modern ones) don't fail on preflight OPTIONS requests
+  optionsSuccessStatus: 200, // Ensures legacy browsers (and some modern ones) don't fail on preflight OPTIONS requests
 };
 
 // The cors middleware automatically handles preflight (OPTIONS) requests.
@@ -50,7 +48,6 @@ app.use(cors(corsOptions));
 // 2. JSON Body Parser
 // This middleware is required to parse JSON-formatted request bodies.
 app.use(express.json());
-
 
 // --- API Routes ---
 // All API endpoints are modularly structured and registered here.
@@ -70,8 +67,6 @@ app.use("/api/admin/analytics", adminAnalyticsRoutes);
 app.use("/api/doctor/timeline", doctorTimelineFilteredRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/notification-preferences", notificationPreferencesRoutes);
-app.use("/api/medical-files", medicalFileRoutes);
-
 
 // --- Health Check Route ---
 // A simple endpoint to verify that the service is running.
@@ -79,11 +74,15 @@ app.get("/", (req, res) => {
   res.send("Clinic SaaS API is running and healthy.");
 });
 
-
 // --- Global Error Handlers (Stability Safeguards) ---
 // Catches unhandled promise rejections from async operations.
 process.on("unhandledRejection", (reason, promise) => {
-  console.error("CRITICAL: Unhandled Rejection at:", promise, "reason:", reason);
+  console.error(
+    "CRITICAL: Unhandled Rejection at:",
+    promise,
+    "reason:",
+    reason,
+  );
   // Recommended: Use a process manager like PM2 to automatically restart the service.
 });
 
@@ -94,9 +93,10 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
-
 // --- Server Activation ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+  console.log(
+    `Server running in ${process.env.NODE_ENV || "development"} mode on port ${PORT}`,
+  );
 });

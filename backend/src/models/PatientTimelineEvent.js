@@ -35,7 +35,6 @@ const patientTimelineEventSchema = new mongoose.Schema(
         "appointment_completed",
         "prescription_created",
         "doctor_note_added",
-        "medical_file_uploaded",
       ],
       required: true,
       index: true,
