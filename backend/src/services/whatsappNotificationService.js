@@ -34,7 +34,10 @@ class WhatsAppNotificationService {
     this.whatsappCloudApiToken = process.env.WHATSAPP_CLOUD_API_TOKEN;
     this.whatsappPhoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
     this.whatsappBusinessAccountId = process.env.WHATSAPP_BUSINESS_ACCOUNT_ID;
-    this.isEnabled = process.env.WHATSAPP_NOTIFICATIONS_ENABLED === "true";
+    this.isEnabled =
+      String(process.env.WHATSAPP_NOTIFICATIONS_ENABLED)
+        .trim()
+        .toLowerCase() === "true";
     // isConfigured indicates whether provider + credentials are valid
     this.isConfigured = false;
 
@@ -218,8 +221,8 @@ class WhatsAppNotificationService {
     // Add country code if missing (assume +1 for testing/US)
     if (!cleaned.startsWith("+")) {
       if (cleaned.length === 10) {
-        cleaned = "+1" + cleaned; // Assume US number
-      } else if (!cleaned.startsWith("1") && cleaned.length === 11) {
+        cleaned = "+2" + cleaned; // Assume US number
+      } else if (!cleaned.startsWith("2") && cleaned.length === 11) {
         cleaned = "+" + cleaned;
       } else if (!cleaned.includes("+")) {
         cleaned = "+" + cleaned;
