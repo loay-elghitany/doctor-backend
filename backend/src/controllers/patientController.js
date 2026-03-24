@@ -98,6 +98,50 @@ export const registerPatient = async (req, res) => {
       phoneNumber,
     });
 
+    // Send WhatsApp notifications for new patient registration (Scenario 1)
+    try {
+      const doctorFromDb = await Doctor.findById(doctor._id);
+      const doctorName = doctorFromDb?.name || "الدكتور";
+      const patientName = patient?.name || "المريض";
+      const patientPhone = patient?.phoneNumber || "غير متوفر";
+
+      const doctorMessage = `مرحباً د. ${doctorName}، تم تسجيل مريض جديد في عيادتك 👤. الاسم: ${patientName} | 📞 الاتصال: ${patientPhone}.`;
+      const patientMessage = `مرحباً ${patientName}، مرحباً بك في عيادة د. ${doctorName} 🏥. تم إنشاء حسابك بنجاح. يمكنك الآن حجز مواعيد وإدارة السجلات الطبية بسهولة.`;
+
+      const doctorNotification = createAndSendNotification({
+        recipientId: doctor._id,
+        recipientType: "Doctor",
+        type: "patient_registered",
+        title: "مريض جديد مسجل",
+        message: doctorMessage,
+        doctorId: doctor._id,
+        patientId: patient._id,
+        actionUrl: `/doctor/patients`,
+        metadata: {
+          patientName,
+          patientPhone,
+        },
+      });
+
+      const patientNotification = createAndSendNotification({
+        recipientId: patient._id,
+        recipientType: "Patient",
+        type: "patient_registered",
+        title: "تم التسجيل بنجاح",
+        message: patientMessage,
+        doctorId: doctor._id,
+        patientId: patient._id,
+        actionUrl: `/patient/appointments`,
+        metadata: {
+          doctorName,
+        },
+      });
+
+      await Promise.allSettled([doctorNotification, patientNotification]);
+    } catch (notificationError) {
+      console.error("[registerPatient] Failed to send notifications:", notificationError.message);
+    }
+
     res.status(201).json({
       success: true,
       message: "Patient registered successfully!",

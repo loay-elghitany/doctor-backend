@@ -465,12 +465,13 @@ export const updateAppointmentStatus = async (req, res) => {
 
         if (isConfirmedOrScheduled) {
           notificationType = "appointment_confirmed";
-          notificationTitle = "Appointment Confirmed";
-          notificationMessage = `Your appointment with ${doctorName} on ${appointment.date.toLocaleDateString()} at ${appointment.timeSlot} has been confirmed.`;
+          notificationTitle = "تم تأكيد الموعد";
+          const dateLabel = appointment.date.toLocaleDateString("ar-EG");
+          notificationMessage = `مرحباً ${patientName}، خبر رائع! تم تأكيد موعدك مع د. ${doctorName} ✅. ⏰ نتطلع لرؤيتك في ${dateLabel} الساعة ${appointment.timeSlot}. نتمنى لك دوام الصحة.`;
         } else if (status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
           notificationType = "appointment_proposed";
-          notificationTitle = "Doctor Proposed New Times";
-          notificationMessage = `${doctorName} has proposed new times for your appointment. Please check the app to respond.`;
+          notificationTitle = "تم اقتراح مواعيد بديلة";
+          notificationMessage = `مرحباً ${patientName}، الطبيب غير متاح في الوقت المطلوب، ولكن تم اقتراح مواعيد بديلة 🔄. يرجى تسجيل الدخول إلى حسابك واختيار الوقت المناسب لتأكيد الحجز.`;
         }
 
         await createAndSendNotification({
@@ -701,22 +702,24 @@ export const proposeTimes = async (req, res) => {
     try {
       const patient = await Patient.findById(appointment.patientId);
       const doctor = req.doctor;
-      const patientName = patient?.name || "Patient";
-      const doctorName = doctor?.name || "Doctor";
+      const patientName = patient?.name || "المريض";
+      const doctorName = doctor?.name || "الدكتور";
 
       const optionsText = validatedOptions
         .map(
           (opt, idx) =>
-            `Option ${idx + 1}: ${opt.date.toLocaleDateString()} at ${opt.timeSlot}`,
+            `الخيار ${idx + 1}: ${opt.date.toLocaleDateString("ar-EG")} الساعة ${opt.timeSlot}`,
         )
         .join("\n");
+
+      const message = `مرحباً ${patientName}، الطبيب غير متاح في الوقت المطلوب، لكنه اقترح المواعيد التالية 🔄:\n\n${optionsText}\n\nيرجى تسجيل الدخول إلى حسابك واختيار الوقت المناسب لتأكيد الحجز.`;
 
       await createAndSendNotification({
         recipientId: appointment.patientId, // Patient
         recipientType: "Patient",
         type: "appointment_proposed",
-        title: "Doctor Proposed New Appointment Times",
-        message: `${doctorName} has proposed the following times for your appointment:\n\n${optionsText}\n\nPlease check your dashboard to confirm one of these times.`,
+        title: "اقتراح مواعيد بديلة",
+        message,
         appointmentId: appointment._id,
         doctorId: appointment.doctorId,
         patientId: appointment.patientId,
@@ -826,15 +829,25 @@ export const cancelAppointment = async (req, res) => {
     try {
       const patient = await Patient.findById(appointment.patientId);
       const doctor = req.doctor;
-      const patientName = patient?.name || "Patient";
-      const doctorName = doctor?.name || "Doctor";
+      const patientName = patient?.name || "المريض";
+      const doctorName = doctor?.name || "الدكتور";
+      const dateLabel = appointment.date.toLocaleDateString("ar-EG");
+
+      const isConfirmedOrScheduled = [
+        APPOINTMENT_STATUS.CONFIRMED,
+        APPOINTMENT_STATUS.SCHEDULED,
+      ].includes(appointment.status);
+
+      const message = isConfirmedOrScheduled
+        ? `تنبيه هام ⚠️. مرحباً ${patientName}، نأسف لإبلاغك أن موعدك القادم مع د. ${doctorName} المقرر في ${dateLabel} الساعة ${appointment.timeSlot} تم إلغاؤه بسبب ظروف طارئة. الرجاء التواصل معنا أو حجز موعد بديل.`
+        : `مرحباً ${patientName}، نأسف لإبلاغك أن موعدك مع د. ${doctorName} لا يمكن قبوله في الوقت الحالي ❌. يرجى تسجيل الدخول إلى حسابك لحجز موعد في وقت آخر.`;
 
       await createAndSendNotification({
         recipientId: appointment.patientId, // Patient
         recipientType: "Patient",
         type: "appointment_cancelled",
-        title: "Appointment Cancelled",
-        message: `${doctorName} has cancelled your appointment scheduled for ${appointment.date.toLocaleDateString()} at ${appointment.timeSlot}. Please check your dashboard for more information or contact the clinic.`,
+        title: "تم إلغاء الموعد",
+        message,
         appointmentId: appointment._id,
         doctorId: appointment.doctorId,
         patientId: appointment.patientId,

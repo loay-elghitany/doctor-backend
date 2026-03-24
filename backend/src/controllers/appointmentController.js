@@ -183,13 +183,11 @@ export const createAppointment = async (req, res) => {
       const patientName = patient?.name || "المريض";
       const patientPhone = patient?.phoneNumber || "غير متوفر";
       const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
-      const dateLabel = parsedDate.toLocaleDateString();
+      const dateLabel = parsedDate.toLocaleDateString("ar-EG");
 
-      const doctorMessage = `مرحباً د. ${doctorName}، تم حجز موعد جديد في عيادتك 📅. تفاصيل الحجز: 👤 المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}.${
-        notes ? `\nملاحظة: ${notes}` : ""
-      }`;
+      const doctorMessage = `طلب موعد جديد 🔔. المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ المطلوب: ${dateLabel} | ⌚ الوقت: ${timeSlot}. الرجاء تسجيل الدخول للمنصة للموافقة أو الرفض أو اقتراح موعد بديل.`;
 
-      const patientMessage = `مرحباً ${patientName}، تم تأكيد موعدك مع د. ${doctorName} بنجاح 📅. ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}. يمكنك متابعة حالة الموعد عبر حسابك. نتمنى لك الصحة والعافية!`;
+      const patientMessage = `مرحباً ${patientName}، تم استلام طلب موعدك مع د. ${doctorName} 📅. ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}. طلبك قيد المراجعة وسنبلغك فور تأكيد الطبيب.`;
 
       const doctorNotification = createAndSendNotification({
         recipientId: req.tenantId,
@@ -425,11 +423,11 @@ export const chooseTime = async (req, res) => {
       const doctorName = doctorFromDb?.name || "الدكتور";
       const patientPhone = patient?.phoneNumber || "غير متوفر";
       const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
-      const formattedDate = selectedDate.toLocaleDateString();
+      const formattedDate = selectedDate.toLocaleDateString("ar-EG");
 
-      const doctorMessage = `مرحباً د. ${doctorName}، المريض ${patientName} قد أكد الموعد المقترح بنجاح ✅. 📞 هاتف التواصل: ${patientPhone} | ⏰ التاريخ: ${formattedDate} | ⌚ الوقت: ${selectedTimeSlot}.`;
+      const doctorMessage = `تم تأكيد الموعد المقترح ✅. المريض ${patientName} قد اختار المؤكد بتاريخ ${formattedDate} الساعة ${selectedTimeSlot}. 📞 رقم المريض: ${patientPhone}.`;
 
-      const patientMessage = `مرحباً ${patientName}، لقد أكدت الموعد المقترح مع د. ${doctorName} ✅. ⏰ التاريخ: ${formattedDate} | ⌚ الوقت: ${selectedTimeSlot}. نتطلع لرؤيتك في العيادة!`;
+      const patientMessage = `مرحباً ${patientName}، تم تأكيد موعدك بنجاح ✅. موعدك القادم هو في ${formattedDate} الساعة ${selectedTimeSlot}. نتطلع لرؤيتك في العيادة!`;
 
       const doctorNotification = createAndSendNotification({
         recipientId: appointment.doctorId,
