@@ -174,32 +174,65 @@ export const createAppointment = async (req, res) => {
       // Don't fail the appointment creation if timeline event fails
     }
 
-    // Send WhatsApp notification to doctor about new appointment
+    // Send WhatsApp notification to doctor and patient about new appointment (Scenario 1)
     try {
       const patient = await Patient.findById(req.patientId);
-      const doctorName = doctor.name || "Doctor";
-      const patientName = patient?.name || "Patient";
+      const doctorFromDb = await Doctor.findById(req.tenantId);
 
-      await createAndSendNotification({
-        recipientId: req.tenantId, // Doctor
+      const doctorName = doctorFromDb?.name || "الدكتور";
+      const patientName = patient?.name || "المريض";
+      const patientPhone = patient?.phoneNumber || "غير متوفر";
+      const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
+      const dateLabel = parsedDate.toLocaleDateString();
+
+      const doctorMessage = `مرحباً د. ${doctorName}، تم حجز موعد جديد في عيادتك 📅. تفاصيل الحجز: 👤 المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}.${
+        notes ? `\nملاحظة: ${notes}` : ""
+      }`;
+
+      const patientMessage = `مرحباً ${patientName}، تم تأكيد موعدك مع د. ${doctorName} بنجاح 📅. ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}. يمكنك متابعة حالة الموعد عبر حسابك. نتمنى لك الصحة والعافية!`;
+
+      const doctorNotification = createAndSendNotification({
+        recipientId: req.tenantId,
         recipientType: "Doctor",
         type: "appointment_created",
-        title: "New Appointment Booking",
-        message: `${patientName} has booked an appointment for ${parsedDate.toLocaleDateString()} at ${timeSlot}${notes ? `\n\nNotes: ${notes}` : ""}`,
+        title: "حجز موعد جديد",
+        message: doctorMessage,
         appointmentId: appointment._id,
         doctorId: req.tenantId,
         patientId: req.patientId,
         actionUrl: `/doctor/appointments`,
         metadata: {
           patientName,
+          patientPhone,
           date: parsedDate,
           timeSlot,
           notes,
         },
       });
+
+      const patientNotification = createAndSendNotification({
+        recipientId: req.patientId,
+        recipientType: "Patient",
+        type: "appointment_created",
+        title: "تم تأكيد الموعد",
+        message: patientMessage,
+        appointmentId: appointment._id,
+        doctorId: req.tenantId,
+        patientId: req.patientId,
+        actionUrl: `/patient/appointments/${appointment._id}`,
+        metadata: {
+          doctorName,
+          doctorPhone,
+          date: parsedDate,
+          timeSlot,
+          notes,
+        },
+      });
+
+      await Promise.allSettled([doctorNotification, patientNotification]);
     } catch (notificationError) {
       console.error(
-        "[createAppointment] Failed to send notification:",
+        "[createAppointment] Failed to send notifications:",
         notificationError.message,
       );
       // Don't fail the appointment creation if notification fails
@@ -383,30 +416,61 @@ export const chooseTime = async (req, res) => {
       // Don't fail the confirmation if timeline event fails
     }
 
-    // Send WhatsApp notification to doctor about appointment confirmation
+    // Send WhatsApp notification to doctor and patient after patient confirms proposed time (Scenario 2)
     try {
       const patient = await Patient.findById(appointment.patientId);
-      const patientName = patient?.name || "Patient";
+      const doctorFromDb = await Doctor.findById(appointment.doctorId);
 
-      await createAndSendNotification({
-        recipientId: appointment.doctorId, // Doctor
+      const patientName = patient?.name || "المريض";
+      const doctorName = doctorFromDb?.name || "الدكتور";
+      const patientPhone = patient?.phoneNumber || "غير متوفر";
+      const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
+      const formattedDate = selectedDate.toLocaleDateString();
+
+      const doctorMessage = `مرحباً د. ${doctorName}، المريض ${patientName} قد أكد الموعد المقترح بنجاح ✅. 📞 هاتف التواصل: ${patientPhone} | ⏰ التاريخ: ${formattedDate} | ⌚ الوقت: ${selectedTimeSlot}.`;
+
+      const patientMessage = `مرحباً ${patientName}، لقد أكدت الموعد المقترح مع د. ${doctorName} ✅. ⏰ التاريخ: ${formattedDate} | ⌚ الوقت: ${selectedTimeSlot}. نتطلع لرؤيتك في العيادة!`;
+
+      const doctorNotification = createAndSendNotification({
+        recipientId: appointment.doctorId,
         recipientType: "Doctor",
         type: "appointment_confirmed",
-        title: "Appointment Confirmed by Patient",
-        message: `${patientName} has confirmed their appointment for ${selectedDate.toLocaleDateString()} at ${selectedTimeSlot}`,
+        title: "تأكيد موعد مقترح",
+        message: doctorMessage,
         appointmentId: appointment._id,
         doctorId: appointment.doctorId,
         patientId: appointment.patientId,
         actionUrl: `/doctor/appointments`,
         metadata: {
           patientName,
+          patientPhone,
           date: selectedDate,
           timeSlot: selectedTimeSlot,
         },
       });
+
+      const patientNotification = createAndSendNotification({
+        recipientId: appointment.patientId,
+        recipientType: "Patient",
+        type: "appointment_confirmed",
+        title: "تم تأكيد الموعد",
+        message: patientMessage,
+        appointmentId: appointment._id,
+        doctorId: appointment.doctorId,
+        patientId: appointment.patientId,
+        actionUrl: `/patient/appointments/${appointment._id}`,
+        metadata: {
+          doctorName,
+          doctorPhone,
+          date: selectedDate,
+          timeSlot: selectedTimeSlot,
+        },
+      });
+
+      await Promise.allSettled([doctorNotification, patientNotification]);
     } catch (notificationError) {
       console.error(
-        "[chooseTime] Failed to send notification:",
+        "[chooseTime] Failed to send notifications:",
         notificationError.message,
       );
       // Don't fail the confirmation if notification fails
@@ -449,6 +513,90 @@ export const cancelAppointment = async (req, res) => {
         success: false,
         message: "This appointment has already been cancelled.",
         data: null,
+      });
+    }
+
+    // Doctor/clinic-initiated cancellation (Scenario 3)
+    if (req.doctor && req.doctor._id) {
+      if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "You are not authorized to cancel this appointment.",
+          data: null,
+        });
+      }
+
+      appointment.status = APPOINTMENT_STATUS.CANCELLED;
+      appointment.cancelledBy = req.doctor._id;
+      appointment.cancelledByType = "Doctor";
+      appointment.rescheduleOptions = [];
+      await appointment.save();
+
+      try {
+        await createTimelineEvent({
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          appointmentId: appointment._id,
+          eventType: "appointment_cancelled",
+          eventTitle: "Appointment Cancelled",
+          eventDescription: "Doctor cancelled appointment",
+          eventStatus: "cancelled",
+          visibility: "patient_visible",
+          metadata: {
+            cancelledBy: "doctor",
+            date: appointment.date,
+            timeSlot: appointment.timeSlot,
+          },
+        });
+      } catch (timelineError) {
+        console.error(
+          "[cancelAppointment] Failed to create timeline event:",
+          timelineError.message,
+        );
+        // Don't fail the cancellation if timeline event fails
+      }
+
+      try {
+        const patient = await Patient.findById(appointment.patientId);
+        const doctorFromDb = await Doctor.findById(appointment.doctorId);
+
+        const patientName = patient?.name || "المريض";
+        const doctorName = doctorFromDb?.name || "الدكتور";
+        const phone = patient?.phoneNumber || "غير متوفر";
+        const dateLabel = appointment.date.toLocaleDateString();
+
+        const patientMessage = `مرحباً ${patientName}، نأسف لإبلاغك أن موعدك القادم مع د. ${doctorName} تم إلغاؤه ⚠️. ⏰ تفاصيل الموعد المُلغى: ${dateLabel} الساعة ${appointment.timeSlot}. الرجاء التواصل مع العيادة أو تسجيل الدخول إلى حسابك لحجز موعد جديد.`;
+
+        await createAndSendNotification({
+          recipientId: appointment.patientId,
+          recipientType: "Patient",
+          type: "appointment_cancelled",
+          title: "تم إلغاء الموعد",
+          message: patientMessage,
+          appointmentId: appointment._id,
+          doctorId: appointment.doctorId,
+          patientId: appointment.patientId,
+          actionUrl: `/patient/appointments/${appointment._id}`,
+          metadata: {
+            doctorName,
+            patientName,
+            patientPhone: phone,
+            date: appointment.date,
+            timeSlot: appointment.timeSlot,
+          },
+        });
+      } catch (notificationError) {
+        console.error(
+          "[cancelAppointment] Failed to send notification:",
+          notificationError.message,
+        );
+        // Don't fail cancellation if notification fails
+      }
+
+      return res.json({
+        success: true,
+        message: "Appointment has been cancelled.",
+        data: appointment,
       });
     }
 

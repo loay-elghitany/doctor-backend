@@ -139,23 +139,26 @@ export const createPrescription = async (req, res) => {
       // Don't fail prescription creation if timeline event fails
     }
 
-    // Send WhatsApp notification to patient about new prescription
+    // Send WhatsApp notification to patient about new prescription (Scenario 4)
     try {
       const doctor = req.doctor;
       const patient = appointment.patientId;
-      const patientName = patient?.name || "Patient";
-      const doctorName = doctor?.name || "Doctor";
+      const patientName = patient?.name || "المريض";
+      const doctorName = doctor?.name || "الدكتور";
+      const dateLabel = new Date().toLocaleDateString();
 
       const medicationSummary = medications
         .map((med) => `${med.name} ${med.dosage || med.strength || ""}`)
         .join(", ");
 
+      const patientMessage = `مرحباً ${patientName}، نتمنى لك دوام الصحة والعافية 🩺. د. ${doctorName} قد أصدرك وصفة طبية جديدة بتاريخ ${dateLabel}. يمكنك الدخول إلى حسابك على المنصة لمشاهدة تفاصيل الوصفة والأدوية وتحميلها.`;
+
       await createAndSendNotification({
         recipientId: appointment.patientId._id, // Patient
         recipientType: "Patient",
         type: "prescription_created",
-        title: "New Prescription from Doctor",
-        message: `${doctorName} has added a new prescription:\n\nMedications: ${medicationSummary}${diagnosis ? `\nDiagnosis: ${diagnosis}` : ""}${notes ? `\n\nNotes: ${notes}` : ""}\n\nPlease check your dashboard for complete details.`,
+        title: "تم إصدار وصفة جديدة",
+        message: patientMessage,
         prescriptionId: prescription._id,
         appointmentId,
         doctorId: req.doctor._id,
