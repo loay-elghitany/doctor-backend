@@ -139,7 +139,10 @@ export const registerPatient = async (req, res) => {
 
       await Promise.allSettled([doctorNotification, patientNotification]);
     } catch (notificationError) {
-      console.error("[registerPatient] Failed to send notifications:", notificationError.message);
+      console.error(
+        "[registerPatient] Failed to send notifications:",
+        notificationError.message,
+      );
     }
 
     res.status(201).json({
