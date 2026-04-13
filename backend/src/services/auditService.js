@@ -1,5 +1,44 @@
 import AuditLog from "../models/AuditLog.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+export const logAction = async ({
+  actorType = "System",
+  actorId = null,
+  action,
+  resourceType = null,
+  resourceId = null,
+  meta = {},
+}) => {
+  if (!action) {
+    logger.warn("auditService", "Missing audit action", {
+      actorType,
+      actorId,
+    });
+    return null;
+  }
+
+  try {
+    const entry = await AuditLog.create({
+      actorType,
+      actorId,
+      action,
+      resourceType,
+      resourceId,
+      meta,
+    });
+
+    logger.debug("auditService", "Action logged", {
+      id: entry._id,
+      actorType,
+      actorId,
+      action,
+    });
+    return entry;
+  } catch (error) {
+    logger.error("auditService", "Failed to log action", error);
+    return null;
+  }
+};
 
 export const logBlockedAction = async ({
   actorType = "Doctor",
@@ -10,30 +49,21 @@ export const logBlockedAction = async ({
   reason = null,
   meta = {},
 }) => {
-  try {
-    const entry = await AuditLog.create({
-      actorType,
-      actorId,
-      action,
-      resourceType,
-      resourceId,
-      reason,
-      meta,
-    });
-
-    debugLog("auditService", "Blocked action logged", {
-      id: entry._id,
-      actorId,
-      action,
-    });
-    return entry;
-  } catch (error) {
-    debugError("auditService", "Failed to log blocked action", error);
-    // don't throw - auditing should not block main flow
-    return null;
+  const entry = await logAction({
+    actorType,
+    actorId,
+    action,
+    resourceType,
+    resourceId,
+    meta: { ...meta, reason },
+  });
+  if (!entry) {
+    logger.error("auditService", "Failed to log blocked action");
   }
+  return entry;
 };
 
 export default {
+  logAction,
   logBlockedAction,
 };

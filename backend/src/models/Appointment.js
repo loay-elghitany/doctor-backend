@@ -86,6 +86,22 @@ const appointmentSchema = new mongoose.Schema(
       type: String,
       enum: ["Doctor", "Patient"],
     },
+    createdBy: {
+      type: String,
+      enum: ["patient", "doctor", "secretary"],
+      default: "patient",
+      index: true,
+    },
+    createdById: {
+      type: mongoose.Schema.Types.ObjectId,
+      refPath: "createdByRef",
+      required: false,
+    },
+    createdByRef: {
+      type: String,
+      enum: ["Patient", "Doctor", "Secretary"],
+      required: false,
+    },
     // Soft-delete support
     isDeleted: {
       type: Boolean,

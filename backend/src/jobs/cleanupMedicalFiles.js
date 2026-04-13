@@ -1,6 +1,8 @@
 import MedicalFile from "../models/MedicalFile.js";
 import StorageAdapter from "../services/storageAdapter.js";
 import AuditLog from "../models/AuditLog.js";
+import logger from "../utils/logger.js";
+
 
 // Cleanup job: physically delete files that were soft-deleted more than X days ago.
 // Disabled by default. To run: node src/jobs/cleanupMedicalFiles.js
@@ -33,13 +35,13 @@ const runCleanup = async () => {
         });
         await f.remove();
       } catch (err) {
-        console.error("Failed to cleanup file", f._id, err.message || err);
+        logger.error("Failed to cleanup file", f._id, err.message || err);
       }
     }
-    console.log(`Cleanup completed. Processed ${files.length} files.`);
+    logger.debug(`Cleanup completed. Processed ${files.length} files.`);
     process.exit(0);
   } catch (err) {
-    console.error("Cleanup job failed", err);
+    logger.error("Cleanup job failed", err);
     process.exit(1);
   }
 };

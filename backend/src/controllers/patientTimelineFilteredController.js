@@ -1,7 +1,9 @@
 import Appointment from "../models/Appointment.js";
 import Prescription from "../models/Prescription.js";
 import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Get filtered patient timeline with search and pagination
@@ -12,7 +14,7 @@ import { debugLog, debugError } from "../utils/debug.js";
 export const getPatientTimelineFiltered = async (req, res) => {
   try {
     if (!req.user || !req.user._id) {
-      debugLog(
+      logger.debug(
         "getPatientTimelineFiltered",
         "Unauthorized - missing patient context",
       );
@@ -37,7 +39,7 @@ export const getPatientTimelineFiltered = async (req, res) => {
       sortOrder = "desc", // newest first
     } = req.query;
 
-    debugLog("getPatientTimelineFiltered", "Fetching filtered timeline", {
+    logger.debug("getPatientTimelineFiltered", "Fetching filtered timeline", {
       patientId,
       filters: { startDate, endDate, doctorId, eventType, searchText },
       pagination: { limit: parseInt(limit), offset: parseInt(offset) },
@@ -251,7 +253,7 @@ export const getPatientTimelineFiltered = async (req, res) => {
       parseInt(offset) + parseInt(limit),
     );
 
-    debugLog("getPatientTimelineFiltered", "Timeline fetched successfully", {
+    logger.debug("getPatientTimelineFiltered", "Timeline fetched successfully", {
       total,
       returned: paginatedEvents.length,
       appointments: appointments.length,
@@ -278,7 +280,7 @@ export const getPatientTimelineFiltered = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getPatientTimelineFiltered",
       "Error fetching filtered timeline",
       error,
@@ -307,7 +309,7 @@ export const getPatientTimelineStats = async (req, res) => {
 
     const patientId = req.user._id;
 
-    debugLog("getPatientTimelineStats", "Calculating timeline statistics", {
+    logger.debug("getPatientTimelineStats", "Calculating timeline statistics", {
       patientId,
     });
 
@@ -361,7 +363,7 @@ export const getPatientTimelineStats = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getPatientTimelineStats",
       "Error calculating timeline statistics",
       error,

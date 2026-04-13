@@ -1,7 +1,9 @@
 import Doctor from "../models/Doctor.js";
 import bcryptjs from "bcryptjs";
 import { v4 as uuidv4 } from "uuid";
-console.log(
+import logger from "../utils/logger.js";
+
+logger.debug(
   "[adminController] NOTE: uuid package must be installed or use Math.random() for slug generation",
 );
 
@@ -102,7 +104,7 @@ export const createDoctorAccount = async (req, res) => {
       status: "active",
     });
 
-    console.log("[createDoctorAccount] Doctor account created", {
+    logger.debug("[createDoctorAccount] Doctor account created", {
       doctorId: doctor._id,
       email: doctor.email,
       clinicSlug: doctor.clinicSlug,
@@ -128,7 +130,7 @@ export const createDoctorAccount = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[createDoctorAccount] error:", error);
+    logger.error("[createDoctorAccount] error:", error);
 
     if (error.code === 11000) {
       return res.status(400).json({
@@ -194,7 +196,7 @@ export const deactivateDoctorAccount = async (req, res) => {
     doctor.deactivatedAt = new Date();
     await doctor.save();
 
-    console.log("[adminController] Doctor account deactivated", {
+    logger.debug("[adminController] Doctor account deactivated", {
       doctorId: doctor._id,
       email: doctor.email,
       clinicSlug: doctor.clinicSlug,
@@ -216,7 +218,7 @@ export const deactivateDoctorAccount = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[deactivateDoctorAccount] error:", error);
+    logger.error("[deactivateDoctorAccount] error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to deactivate doctor account",
@@ -269,7 +271,7 @@ export const reactivateDoctorAccount = async (req, res) => {
     doctor.deactivatedAt = null;
     await doctor.save();
 
-    console.log("[adminController] Doctor account reactivated", {
+    logger.debug("[adminController] Doctor account reactivated", {
       doctorId: doctor._id,
       email: doctor.email,
       clinicSlug: doctor.clinicSlug,
@@ -288,7 +290,7 @@ export const reactivateDoctorAccount = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[reactivateDoctorAccount] error:", error);
+    logger.error("[reactivateDoctorAccount] error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to reactivate doctor account",
@@ -319,7 +321,7 @@ export const listAllDoctors = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[listAllDoctors] error:", error);
+    logger.error("[listAllDoctors] error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve doctors",
@@ -362,7 +364,7 @@ export const getDoctorInfo = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[getDoctorInfo] error:", error);
+    logger.error("[getDoctorInfo] error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to retrieve doctor info",
@@ -415,7 +417,7 @@ export const deleteDoctorAccountPermanent = async (req, res) => {
       });
     }
 
-    console.log("[adminController] Doctor account PERMANENTLY DELETED", {
+    logger.debug("[adminController] Doctor account PERMANENTLY DELETED", {
       doctorId: doctor._id,
       email: doctor.email,
       clinicSlug: doctor.clinicSlug,
@@ -434,7 +436,7 @@ export const deleteDoctorAccountPermanent = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("[deleteDoctorAccountPermanent] error:", error);
+    logger.error("[deleteDoctorAccountPermanent] error:", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete doctor account",

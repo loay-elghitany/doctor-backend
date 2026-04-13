@@ -3,7 +3,7 @@ import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
 import Appointment from "../models/Appointment.js";
 import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
-import { debugLog, debugError } from "../utils/debug.js";
+
 import multer from "multer";
 import path from "path";
 import mime from "mime-types";
@@ -11,6 +11,9 @@ import storageUtils from "../utils/medicalFileStorage.js";
 import fileValidation from "../utils/fileValidation.js";
 import AuditLog from "../models/AuditLog.js";
 import mongoose from "mongoose";
+import enforceOwnership from "../middleware/enforceOwnership.js";
+import logger from "../utils/logger.js";
+import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 const ALLOWED_MIMETYPES = ["image/jpeg", "image/png", "application/pdf"];
 
@@ -63,15 +66,12 @@ export const uploadMedicalFile = [
 
       const { title, notes, appointmentId, doctorId } = req.body;
 
-      // Determine doctorId: prefer provided if it matches patient's doctor, otherwise use patient's doctorId
-      let finalDoctorId =
-        doctorId || patient.doctorId || patient.assignedDoctorId;
+      // Determine doctorId: prefer provided if it matches the patient's doctor, otherwise use patient's doctorId
+      let finalDoctorId = doctorId || patient.doctorId;
 
       // If provided doctorId, validate it belongs to this patient
       if (doctorId) {
-        const matchesAssigned =
-          String(patient.doctorId) === String(doctorId) ||
-          String(patient.assignedDoctorId) === String(doctorId);
+        const matchesAssigned = String(patient.doctorId) === String(doctorId);
         if (!matchesAssigned) {
           return res.status(403).json({
             success: false,
@@ -167,7 +167,7 @@ export const uploadMedicalFile = [
         uploadedAt: new Date(),
       });
 
-      debugLog("uploadMedicalFile", "Attempting to create timeline event");
+      logger.debug("uploadMedicalFile", "Attempting to create timeline event");
       // Create PatientTimelineEvent for doctor visibility (non-blocking)
       // This ensures the file appears in doctor's patient timeline
       try {
@@ -189,18 +189,18 @@ export const uploadMedicalFile = [
             fileType,
           },
         });
-        debugLog("uploadMedicalFile", "Timeline event created", {
+        logger.debug("uploadMedicalFile", "Timeline event created", {
           fileId: doc._id,
           patientId: patient._id,
         });
       } catch (timelineErr) {
         // always log the error details to console in addition to debug helpers
-        debugError(
+        logger.error(
           "uploadMedicalFile",
           "Timeline event creation failed (non-blocking)",
           JSON.stringify(timelineErr, null, 2),
         );
-        console.error("uploadMedicalFile timelineErr:", timelineErr);
+        logger.error("uploadMedicalFile timelineErr:", timelineErr);
       }
 
       // Audit log (non-blocking)
@@ -214,12 +214,12 @@ export const uploadMedicalFile = [
           meta: { fileName: originalName, fileSize: incomingSize },
         });
       } catch (auditErr) {
-        debugError("uploadMedicalFile", "Audit log failed", auditErr);
+        logger.error("uploadMedicalFile", "Audit log failed", auditErr);
       }
 
       res.json({ success: true, data: doc });
     } catch (error) {
-      debugError("uploadMedicalFile", "Upload error", error);
+      logger.error("uploadMedicalFile", "Upload error", error);
       if (error.message === "File too large") {
         return res
           .status(400)
@@ -236,24 +236,24 @@ export const uploadMedicalFile = [
 export const getMyMedicalFiles = async (req, res) => {
   try {
     const patient = req.user;
-    const limit = parseInt(req.query.limit || "50", 10);
-    const offset = parseInt(req.query.offset || "0", 10);
+    const { page, limit, skip } = getPaginationParams(req.query);
 
     const query = { patientId: patient._id, isDeleted: { $ne: true } };
 
-    const total = await MedicalFile.countDocuments(query);
+    const totalItems = await MedicalFile.countDocuments(query);
     const files = await MedicalFile.find(query)
       .sort({ uploadedAt: -1 })
-      .limit(limit)
-      .skip(offset);
+      .skip(skip)
+      .limit(limit);
 
     res.json({
       success: true,
+      message: "Medical files retrieved successfully",
       data: files,
-      pagination: { total, limit, offset },
+      pagination: buildPagination(page, limit, totalItems),
     });
   } catch (error) {
-    debugError("getMyMedicalFiles", "Error fetching files", error);
+    logger.error("getMyMedicalFiles", "Error fetching files", error);
     res
       .status(500)
       .json({ success: false, message: "Failed to fetch files", data: null });
@@ -264,10 +264,7 @@ export const getMyMedicalFiles = async (req, res) => {
 const doctorHasAccessToPatient = async (doctorId, patientId) => {
   const patient = await Patient.findById(patientId);
   if (!patient) return false;
-  return (
-    String(patient.doctorId) === String(doctorId) ||
-    String(patient.assignedDoctorId) === String(doctorId)
-  );
+  return String(patient.doctorId) === String(doctorId);
 };
 
 // GET /api/medical-files/patient/:patientId (doctor)
@@ -316,7 +313,7 @@ export const getPatientFiles = async (req, res) => {
       .skip(offset);
 
     // Debug: Log file fetch to confirm query fix
-    debugLog("getPatientFiles", "Files fetched for patient", {
+    logger.debug("getPatientFiles", "Files fetched for patient", {
       patientId: patientObjectId.toString(),
       doctorId: doctor._id.toString(),
       filesFound: files.length,
@@ -329,7 +326,7 @@ export const getPatientFiles = async (req, res) => {
       pagination: { total, limit, offset },
     });
   } catch (error) {
-    debugError("getPatientFiles", "Error fetching patient files", error);
+    logger.error("getPatientFiles", "Error fetching patient files", error);
     res
       .status(500)
       .json({ success: false, message: "Failed to fetch files", data: null });
@@ -406,7 +403,7 @@ export const getAppointmentFiles = async (req, res) => {
       .skip(offset);
 
     // Debug: Log actual query and results for verification
-    debugLog("getAppointmentFiles", "Files fetched for appointment", {
+    logger.debug("getAppointmentFiles", "Files fetched for appointment", {
       appointmentId: appointmentObjectId.toString(),
       patientId: patientObjectId.toString(),
       query: JSON.stringify(query),
@@ -420,7 +417,7 @@ export const getAppointmentFiles = async (req, res) => {
       pagination: { total, limit, offset },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getAppointmentFiles",
       "Error fetching appointment files",
       error,
@@ -462,7 +459,7 @@ export const downloadFileForPatient = async (req, res) => {
         meta: { fileName: record.fileName },
       });
     } catch (auditErr) {
-      debugError("downloadFileForPatient", "Audit failed", auditErr);
+      logger.error("downloadFileForPatient", "Audit failed", auditErr);
     }
 
     const detected = mime.lookup(record.fileName) || "application/octet-stream";
@@ -472,7 +469,7 @@ export const downloadFileForPatient = async (req, res) => {
     );
     return res.sendFile(filePath);
   } catch (error) {
-    debugError("downloadFileForPatient", "Download error", error);
+    logger.error("downloadFileForPatient", "Download error", error);
     res
       .status(500)
       .json({ success: false, message: "Failed to download file", data: null });
@@ -517,7 +514,7 @@ export const downloadFileForDoctor = async (req, res) => {
         meta: { fileName: record.fileName },
       });
     } catch (auditErr) {
-      debugError("downloadFileForDoctor", "Audit failed", auditErr);
+      logger.error("downloadFileForDoctor", "Audit failed", auditErr);
     }
 
     const detectedDoc =
@@ -528,7 +525,7 @@ export const downloadFileForDoctor = async (req, res) => {
     );
     return res.sendFile(filePath);
   } catch (error) {
-    debugError("downloadFileForDoctor", "Download error", error);
+    logger.error("downloadFileForDoctor", "Download error", error);
     res
       .status(500)
       .json({ success: false, message: "Failed to download file", data: null });
@@ -596,7 +593,7 @@ export const downloadFileShared = async (req, res) => {
         meta: { fileName: record.fileName },
       });
     } catch (auditErr) {
-      debugError("downloadFileShared", "Audit failed", auditErr);
+      logger.error("downloadFileShared", "Audit failed", auditErr);
     }
 
     const detected = mime.lookup(record.fileName) || "application/octet-stream";
@@ -611,7 +608,7 @@ export const downloadFileShared = async (req, res) => {
     );
     return res.sendFile(filePath);
   } catch (error) {
-    debugError("downloadFileShared", "Download error", error);
+    logger.error("downloadFileShared", "Download error", error);
     res
       .status(500)
       .json({ success: false, message: "Failed to download file", data: null });
@@ -619,45 +616,42 @@ export const downloadFileShared = async (req, res) => {
 };
 
 // DELETE (soft) /api/medical-files/:id  (patient or doctor allowed with ownership checks)
-export const softDeleteMedicalFile = async (req, res) => {
-  try {
-    const user = req.user; // could be patient or doctor depending on middleware used
-    const isDoctor = user && user.role === "doctor";
-    const fileId = req.params.id;
-
-    const record = await MedicalFile.findById(fileId);
-    if (!record || record.isDeleted) {
-      return res
-        .status(404)
-        .json({ success: false, message: "File not found", data: null });
-    }
-
-    // Ownership checks
-    if (isDoctor) {
-      if (!(await doctorHasAccessToPatient(user._id, record.patientId))) {
-        return res.status(403).json({
-          success: false,
-          message: "Not allowed to delete this file",
-          data: null,
-        });
-      }
-    } else {
-      // patient must own the file
-      if (String(record.patientId) !== String(user._id)) {
-        return res.status(403).json({
-          success: false,
-          message: "Not allowed to delete this file",
-          data: null,
-        });
-      }
-    }
-
-    record.isDeleted = true;
-    record.deletedAt = new Date();
-    await record.save();
-
+export const softDeleteMedicalFile = [
+  enforceOwnership(async (req) => {
+    return await MedicalFile.findById(req.params.id);
+  }),
+  async (req, res) => {
     try {
-      AuditLog.create({
+      const user = req.user; // could be patient or doctor depending on middleware used
+      const isDoctor = user && user.role === "doctor";
+      const record = req.resource;
+
+      // Ownership checks
+      if (isDoctor) {
+        if (!(await doctorHasAccessToPatient(user._id, record.patientId))) {
+          return res.status(403).json({
+            success: false,
+            message: "Not allowed to delete this file",
+            data: null,
+          });
+        }
+      } else {
+        // patient must own the file
+        if (String(record.patientId) !== String(user._id)) {
+          return res.status(403).json({
+            success: false,
+            message: "Not allowed to delete this file",
+            data: null,
+          });
+        }
+      }
+
+      record.isDeleted = true;
+      record.deletedAt = new Date();
+      await record.save();
+
+      try {
+        AuditLog.create({
         actorType: isDoctor ? "Doctor" : "Patient",
         actorId: user._id,
         action: "medicalfile:deleted",
@@ -666,14 +660,14 @@ export const softDeleteMedicalFile = async (req, res) => {
         meta: { fileName: record.fileName },
       });
     } catch (auditErr) {
-      debugError("softDeleteMedicalFile", "Audit failed", auditErr);
+      logger.error("softDeleteMedicalFile", "Audit failed", auditErr);
     }
 
     res.json({ success: true, data: { id: record._id } });
   } catch (err) {
-    debugError("softDeleteMedicalFile", "Error deleting file", err);
+    logger.error("softDeleteMedicalFile", "Error deleting file", err);
     res
       .status(500)
       .json({ success: false, message: "Failed to delete file", data: null });
   }
-};
+];

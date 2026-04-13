@@ -3,12 +3,14 @@ import mongoose from "mongoose";
 import Appointment from "../models/Appointment.js";
 import migrate from "./migrate_timeSlot_from_date.js";
 import { fileURLToPath } from "url";
+import logger from "../utils/logger.js";
+
 
 const runTest = async () => {
   const mongod = await MongoMemoryServer.create();
   const uri = mongod.getUri();
 
-  console.log("Starting in-memory MongoDB for integration test...");
+  logger.debug("Starting in-memory MongoDB for integration test...");
   process.env.MONGO_URI = uri;
 
   // Connect and seed raw documents (bypass Mongoose defaults by using collection inserts)
@@ -59,10 +61,10 @@ const runTest = async () => {
   ];
 
   const insertResult = await coll.insertMany(docs);
-  console.log(`Inserted ${insertResult.insertedCount} sample documents.`);
+  logger.debug(`Inserted ${insertResult.insertedCount} sample documents.`);
 
   // Run migration first time
-  console.log("Running migration (1st run)...");
+  logger.debug("Running migration (1st run)...");
   await migrate({ dryRun: false });
 
   // Fetch all docs and validate
@@ -80,7 +82,7 @@ const runTest = async () => {
 
   for (const doc of all) {
     if (!doc.timeSlot) {
-      console.error(
+      logger.error(
         `FAIL: Appointment ${doc._id} has no timeSlot after migration`,
       );
       pass = false;
@@ -91,7 +93,7 @@ const runTest = async () => {
     // Find matching original by date or explicit timeSlot
     if (doc.timeSlot === "08:30") {
       // existing timezone-preserved slot should remain unchanged
-      console.log(
+      logger.debug(
         `OK: Appointment ${doc._id} preserved existing timeSlot 08:30`,
       );
       continue;
@@ -110,12 +112,12 @@ const runTest = async () => {
       ) {
         const expected = extractHHMM(original.date);
         if (doc.timeSlot !== expected) {
-          console.error(
+          logger.error(
             `FAIL: Appointment ${doc._id} timeSlot '${doc.timeSlot}' != expected '${expected}' from date ${original.date}`,
           );
           pass = false;
         } else {
-          console.log(
+          logger.debug(
             `OK: Appointment ${doc._id} timeSlot correctly extracted '${expected}'`,
           );
         }
@@ -125,9 +127,9 @@ const runTest = async () => {
 
     // For invalid or missing dates, expect default
     if (doc.timeSlot === "09:00") {
-      console.log(`OK: Appointment ${doc._id} received default timeSlot 09:00`);
+      logger.debug(`OK: Appointment ${doc._id} received default timeSlot 09:00`);
     } else {
-      console.error(
+      logger.error(
         `FAIL: Appointment ${doc._id} unexpected timeSlot '${doc.timeSlot}'`,
       );
       pass = false;
@@ -135,7 +137,7 @@ const runTest = async () => {
   }
 
   // Run migration a second time to verify idempotency
-  console.log("Running migration (2nd run) to verify idempotency...");
+  logger.debug("Running migration (2nd run) to verify idempotency...");
   await migrate({ dryRun: false });
   const afterSecond = await Appointment.find({}).lean();
 
@@ -145,7 +147,7 @@ const runTest = async () => {
     const after = afterSecond.find((d) => String(d._id) === String(before._id));
     if (!after) continue;
     if (before.timeSlot !== after.timeSlot) {
-      console.error(
+      logger.error(
         `FAIL: Appointment ${before._id} timeSlot changed between runs: '${before.timeSlot}' -> '${after.timeSlot}'`,
       );
       pass = false;
@@ -153,12 +155,12 @@ const runTest = async () => {
   }
 
   if (pass) {
-    console.log("INTEGRATION TEST PASSED: Migration behavior as expected.");
+    logger.debug("INTEGRATION TEST PASSED: Migration behavior as expected.");
     await mongoose.disconnect();
     await mongod.stop();
     process.exit(0);
   } else {
-    console.error("INTEGRATION TEST FAILED: See errors above.");
+    logger.error("INTEGRATION TEST FAILED: See errors above.");
     await mongoose.disconnect();
     await mongod.stop();
     process.exit(2);

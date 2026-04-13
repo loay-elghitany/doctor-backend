@@ -1,5 +1,6 @@
 import Notification from "../models/Notification.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 /**
  * Get notification history for authenticated user
@@ -20,13 +21,14 @@ export const getNotificationHistory = async (req, res) => {
       });
     }
 
-    debugLog("getNotificationHistory", "Fetching notifications", {
+    logger.debug("getNotificationHistory", "Fetching notifications", {
       userId,
       userType,
     });
 
     // Get query parameters for pagination and filtering
-    const { status, type, limit = 50, offset = 0 } = req.query;
+    const { status, type } = req.query;
+    const { page, limit, skip } = getPaginationParams(req.query);
     const query = {
       recipientId: userId,
       recipientType: userType,
@@ -44,29 +46,24 @@ export const getNotificationHistory = async (req, res) => {
     }
 
     // Get total count
-    const total = await Notification.countDocuments(query);
+    const totalItems = await Notification.countDocuments(query);
 
     // Get paginated results
     const notifications = await Notification.find(query)
       .populate("appointmentId")
       .populate("prescriptionId")
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(parseInt(offset));
+      .skip(skip)
+      .limit(limit);
 
     res.json({
       success: true,
-      data: {
-        notifications,
-        pagination: {
-          total,
-          limit: parseInt(limit),
-          offset: parseInt(offset),
-        },
-      },
+      message: "Notifications retrieved successfully",
+      data: notifications,
+      pagination: buildPagination(page, limit, totalItems),
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getNotificationHistory",
       "Error fetching notification history",
       error,
@@ -91,7 +88,7 @@ export const getNotificationDetails = async (req, res) => {
     const userId = isDoctor ? req.doctor._id : req.patientId;
     const userType = isDoctor ? "Doctor" : "Patient";
 
-    debugLog("getNotificationDetails", "Fetching notification", {
+    logger.debug("getNotificationDetails", "Fetching notification", {
       notificationId,
       userId,
     });
@@ -120,7 +117,7 @@ export const getNotificationDetails = async (req, res) => {
       data: notification,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getNotificationDetails",
       "Error fetching notification details",
       error,
@@ -146,7 +143,7 @@ export const markNotificationAsRead = async (req, res) => {
     const userId = isDoctor ? req.doctor._id : req.patientId;
     const userType = isDoctor ? "Doctor" : "Patient";
 
-    debugLog("markNotificationAsRead", "Marking as read", {
+    logger.debug("markNotificationAsRead", "Marking as read", {
       notificationId,
       userId,
     });
@@ -177,7 +174,7 @@ export const markNotificationAsRead = async (req, res) => {
       data: notification,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "markNotificationAsRead",
       "Error marking notification as read",
       error,
@@ -208,7 +205,7 @@ export const getNotificationStats = async (req, res) => {
       });
     }
 
-    debugLog("getNotificationStats", "Fetching statistics", {
+    logger.debug("getNotificationStats", "Fetching statistics", {
       userId,
       userType,
     });
@@ -267,7 +264,7 @@ export const getNotificationStats = async (req, res) => {
       data: stats,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getNotificationStats",
       "Error fetching notification statistics",
       error,
@@ -292,7 +289,7 @@ export const deleteNotification = async (req, res) => {
     const userId = isDoctor ? req.doctor._id : req.patientId;
     const userType = isDoctor ? "Doctor" : "Patient";
 
-    debugLog("deleteNotification", "Deleting notification", {
+    logger.debug("deleteNotification", "Deleting notification", {
       notificationId,
       userId,
     });
@@ -322,7 +319,7 @@ export const deleteNotification = async (req, res) => {
       data: { id: notification._id },
     });
   } catch (error) {
-    debugError("deleteNotification", "Error deleting notification", error);
+    logger.error("deleteNotification", "Error deleting notification", error);
     res.status(500).json({
       success: false,
       message: "Failed to delete notification",
@@ -372,7 +369,7 @@ export const getAllNotifications = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getAllNotifications",
       "Error fetching all notifications",
       error,

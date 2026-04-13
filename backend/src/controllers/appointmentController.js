@@ -6,6 +6,10 @@ import { isPast, parseISO } from "date-fns";
 import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
+import enforceOwnership from "../middleware/enforceOwnership.js";
+import logger from "../utils/logger.js";
+import { errorResponse, successResponse } from "../utils/responseHelpers.js";
+import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 /**
  * Validate time slot format (HH:MM)
@@ -50,13 +54,107 @@ const hasBookingConflict = async (
 
 /**
  * Create a new appointment
- * Patient submits: { date, timeSlot?, notes }
- * doctorId is resolved via req.tenantId (set by tenantScope middleware)
- * Supports backward compatibility: if doctorId in body, it will be used (via tenantScope)
+ * Patient submits: { date, timeSlot?, notes, doctorId? }
+ * Secretary submits: { patientId, date, timeSlot?, notes }
+ * Uses req.user from unifiedProtect to resolve role and doctorId/tenant.
  */
 export const createAppointment = async (req, res) => {
   try {
-    const { date, timeSlot = "09:00", notes } = req.body;
+    const {
+      date,
+      timeSlot = "09:00",
+      notes,
+      patientId: requestedPatientId,
+      doctorId: requestedDoctorId,
+    } = req.body;
+
+    const role = req.user?.role;
+    const userId = req.user?._id;
+    logger.debug("createAppointment: role details", {
+      role,
+      userId,
+      doctorId: req.user?.doctorId,
+      requestedPatientId,
+      requestedDoctorId,
+    });
+
+    const resolveAppointmentContext = {
+      patient: async () => {
+        const patientId = userId;
+        if (!patientId) {
+          return {
+            error: {
+              status: 401,
+              body: {
+                success: false,
+                message: "Not authenticated.",
+                data: null,
+              },
+            },
+          };
+        }
+
+        return { tenantId: req.tenantId, patientId };
+      },
+      secretary: async () => {
+        const tenantId = req.tenantId;
+        const patientId = requestedPatientId;
+
+        if (!tenantId) {
+          return {
+            error: {
+              status: 400,
+              body: {
+                success: false,
+                message: "Secretary not associated with a doctor.",
+                data: null,
+              },
+            },
+          };
+        }
+
+        if (!patientId) {
+          return {
+            error: {
+              status: 400,
+              body: {
+                success: false,
+                message:
+                  "PatientId is required for secretary appointment creation.",
+                data: null,
+              },
+            },
+          };
+        }
+
+        const patient = await Patient.findOne({
+          _id: patientId,
+          doctorId: tenantId,
+        });
+        if (!patient) {
+          return {
+            error: {
+              status: 403,
+              body: {
+                success: false,
+                message: "Patient not found or does not belong to this doctor.",
+                data: null,
+              },
+            },
+          };
+        }
+
+        return { tenantId, patientId };
+      },
+    };
+
+    if (!role || !resolveAppointmentContext[role]) {
+      return res.status(403).json({
+        success: false,
+        message: "Only patients or secretaries can create appointments.",
+        data: null,
+      });
+    }
 
     // Guard: Ensure required parameters
     if (!date) {
@@ -97,18 +195,29 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Guard: Ensure patient and doctor context
-    if (!req.patientId || !req.tenantId) {
-      return res.status(401).json({
+    let tenantId;
+    let patientId;
+
+    const appointmentContext = await resolveAppointmentContext[role]();
+    if (appointmentContext?.error) {
+      return res
+        .status(appointmentContext.error.status)
+        .json(appointmentContext.error.body);
+    }
+
+    ({ tenantId, patientId } = appointmentContext);
+
+    if (!tenantId) {
+      return res.status(400).json({
         success: false,
-        message: "Not authenticated.",
+        message:
+          "Appointment must be linked to a doctor. Please provide a valid doctorId.",
         data: null,
       });
     }
 
     // NEW: Check if doctor subscription is active
-    // This prevents booking appointments if doctor has deactivated their subscription
-    const doctor = await Doctor.findById(req.tenantId);
+    const doctor = await Doctor.findById(tenantId);
     if (!doctor) {
       return res.status(404).json({
         success: false,
@@ -126,12 +235,13 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Check for booking conflicts
-    const conflict = await hasBookingConflict(
-      req.tenantId,
-      parsedDate,
-      timeSlot,
-    );
+    logger.debug("createAppointment: verified doctor and tenant", {
+      tenantId,
+      role,
+      patientId,
+    });
+
+    const conflict = await hasBookingConflict(tenantId, parsedDate, timeSlot);
     if (conflict) {
       return res.status(409).json({
         success: false,
@@ -141,19 +251,28 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    const appointment = await Appointment.create({
-      doctorId: req.tenantId,
-      patientId: req.patientId,
+    const appointmentPayload = {
+      doctorId: tenantId,
+      patientId,
       date: parsedDate,
       timeSlot,
       notes,
-    });
+      createdBy: role === "secretary" ? "secretary" : "patient",
+      createdById: userId,
+      createdByRef: role === "secretary" ? "Secretary" : "Patient",
+    };
+
+    if (role === "secretary") {
+      appointmentPayload.status = APPOINTMENT_STATUS.SCHEDULED;
+    }
+
+    const appointment = await Appointment.create(appointmentPayload);
 
     // Auto-create timeline event for new appointment
     try {
       await createTimelineEvent({
-        patientId: req.patientId,
-        doctorId: req.tenantId,
+        patientId,
+        doctorId: tenantId,
         appointmentId: appointment._id,
         eventType: "appointment_created",
         eventTitle: "Appointment Scheduled",
@@ -167,7 +286,7 @@ export const createAppointment = async (req, res) => {
         },
       });
     } catch (timelineError) {
-      console.error(
+      logger.error(
         "[createAppointment] Failed to create timeline event:",
         timelineError.message,
       );
@@ -176,8 +295,8 @@ export const createAppointment = async (req, res) => {
 
     // Send WhatsApp notification to doctor and patient about new appointment (Scenario 1)
     try {
-      const patient = await Patient.findById(req.patientId);
-      const doctorFromDb = await Doctor.findById(req.tenantId);
+      const patient = await Patient.findById(patientId);
+      const doctorFromDb = await Doctor.findById(tenantId);
 
       const doctorName = doctorFromDb?.name || "الدكتور";
       const patientName = patient?.name || "المريض";
@@ -190,14 +309,14 @@ export const createAppointment = async (req, res) => {
       const patientMessage = `مرحباً ${patientName}، تم استلام طلب موعدك مع د. ${doctorName} 📅. ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}. طلبك قيد المراجعة وسنبلغك فور تأكيد الطبيب.`;
 
       const doctorNotification = createAndSendNotification({
-        recipientId: req.tenantId,
+        recipientId: tenantId,
         recipientType: "Doctor",
         type: "appointment_created",
         title: "حجز موعد جديد",
         message: doctorMessage,
         appointmentId: appointment._id,
-        doctorId: req.tenantId,
-        patientId: req.patientId,
+        doctorId: tenantId,
+        patientId,
         actionUrl: `/doctor/appointments`,
         metadata: {
           patientName,
@@ -209,14 +328,14 @@ export const createAppointment = async (req, res) => {
       });
 
       const patientNotification = createAndSendNotification({
-        recipientId: req.patientId,
+        recipientId: patientId,
         recipientType: "Patient",
         type: "appointment_created",
         title: "تم تأكيد الموعد",
         message: patientMessage,
         appointmentId: appointment._id,
-        doctorId: req.tenantId,
-        patientId: req.patientId,
+        doctorId: tenantId,
+        patientId,
         actionUrl: `/patient/appointments/${appointment._id}`,
         metadata: {
           doctorName,
@@ -229,7 +348,7 @@ export const createAppointment = async (req, res) => {
 
       await Promise.allSettled([doctorNotification, patientNotification]);
     } catch (notificationError) {
-      console.error(
+      logger.error(
         "[createAppointment] Failed to send notifications:",
         notificationError.message,
       );
@@ -242,7 +361,7 @@ export const createAppointment = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -252,34 +371,148 @@ export const createAppointment = async (req, res) => {
 };
 
 /**
- * Get all appointments for the logged-in patient
- * Filtered by doctorId (via req.tenantId) and patientId
+ * Unified get appointments endpoint for all roles
+ * Uses JWT role to determine filtering logic
  */
-export const getAppointments = async (req, res) => {
+export const getUnifiedAppointments = async (req, res) => {
   try {
-    // Guard: Ensure patient context
-    if (!req.patientId || !req.tenantId) {
+    logger.debug("getUnifiedAppointments: Called", {
+      hasUser: !!req.user,
+      userKeys: req.user ? Object.keys(req.user) : null,
+      userRole: req.user?.role,
+      userId: req.user?._id || req.user?.id,
+    });
+
+    if (!req.user) {
+      logger.debug("getUnifiedAppointments: No req.user");
       return res.status(401).json({
         success: false,
-        message: "Not authenticated.",
+        message: "Authentication required",
         data: null,
       });
     }
 
-    // Exclude appointments hidden by the patient
-    const appointments = await Appointment.find({
-      doctorId: req.tenantId,
-      patientId: req.patientId,
-      hiddenByPatient: { $ne: true },
-    }).sort({ date: 1 });
+    const { role, _id: userId, id: altUserId, doctorId } = req.user;
+    const actualUserId = userId || altUserId;
+
+    logger.debug("getUnifiedAppointments: Extracted", {
+      role,
+      userId: actualUserId,
+      doctorId,
+    });
+
+    if (!role || !actualUserId) {
+      logger.debug("getUnifiedAppointments: Missing role or userId");
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user data",
+        data: null,
+      });
+    }
+
+    const roleStrategies = {
+      doctor: () => {
+        const query = { doctorId: req.tenantId };
+        logger.debug("getUnifiedAppointments: DOCTOR query", { query });
+        return { query };
+      },
+      secretary: () => {
+        const query = { doctorId: req.tenantId };
+        logger.debug("getUnifiedAppointments: SECRETARY query", {
+          query,
+          tenantId: req.tenantId,
+        });
+        return { query };
+      },
+      patient: () => {
+        const query = {
+          patientId: actualUserId,
+          hiddenByPatient: { $ne: true },
+          doctorId: req.tenantId,
+        };
+        logger.debug("getUnifiedAppointments: PATIENT query", { query });
+        return { query };
+      },
+    };
+
+    const buildStrategy = roleStrategies[role];
+    if (!buildStrategy) {
+      logger.debug("getUnifiedAppointments: UNKNOWN role", { role });
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user role.",
+        data: null,
+      });
+    }
+
+    const strategy = buildStrategy();
+    if (strategy?.error) {
+      return res.status(strategy.error.status).json(strategy.error.body);
+    }
+
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const totalItems = await Appointment.countDocuments(strategy.query);
+
+    const appointments = await Appointment.find(strategy.query)
+      .populate("patientId", "name email phoneNumber")
+      .populate("doctorId", "name email")
+      .sort({ date: 1 })
+      .skip(skip)
+      .limit(limit);
+
+    const normalizedAppointments = appointments.map((appointmentDoc) => {
+      const appointment =
+        typeof appointmentDoc.toObject === "function"
+          ? appointmentDoc.toObject()
+          : appointmentDoc;
+
+      if (!appointment.patientId) {
+        logger.warn("Missing patientId reference in appointment", {
+          appointmentId: appointment._id,
+        });
+      }
+
+      if (!appointment.doctorId) {
+        logger.warn("Missing doctorId reference in appointment", {
+          appointmentId: appointment._id,
+        });
+      }
+
+      const patient = appointment.patientId || {
+        _id: null,
+        name: "Unknown Patient",
+        email: "",
+      };
+
+      const doctor = appointment.doctorId || {
+        _id: null,
+        name: "Unknown Doctor",
+        email: "",
+      };
+
+      return {
+        ...appointment,
+        patientId: {
+          _id: patient._id ?? null,
+          name: patient.name || "Unknown Patient",
+          email: patient.email || "",
+        },
+        doctorId: {
+          _id: doctor._id ?? null,
+          name: doctor.name || "Unknown Doctor",
+          email: doctor.email || "",
+        },
+      };
+    });
 
     res.json({
       success: true,
       message: "Appointments retrieved successfully.",
-      data: appointments,
+      data: normalizedAppointments,
+      pagination: buildPagination(page, limit, totalItems),
     });
   } catch (error) {
-    console.error(error);
+    logger.error("getUnifiedAppointments error:", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -292,56 +525,41 @@ export const getAppointments = async (req, res) => {
  * Patient chooses one of the doctor's proposed reschedule times
  * Body: { optionIndex: 0|1|2 }
  */
-export const chooseTime = async (req, res) => {
-  try {
-    const { optionIndex } = req.body;
+export const chooseTime = [
+  enforceOwnership(async (req) => {
+    return await Appointment.findById(req.params.id);
+  }),
+  async (req, res) => {
+    try {
+      const { optionIndex } = req.body;
 
-    // Guard: Ensure patient context
-    if (!req.patientId) {
-      return res.status(401).json({
-        success: false,
-        message: "Not authenticated.",
-        data: null,
-      });
-    }
+      // Guard: Ensure patient context
+      if (!req.patientId) {
+        return errorResponse(res, 401, "Not authenticated.");
+      }
 
-    const appointment = await Appointment.findById(req.params.id);
+      const appointment = req.resource;
 
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: "Appointment not found.",
-        data: null,
-      });
-    }
+      // Ownership check handled by enforceOwnership middleware
 
-    // Ensure the patient owns the appointment
-    if (appointment.patientId.toString() !== req.patientId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: "You are not authorized to perform this action.",
-        data: null,
-      });
-    }
+      // Ensure the patient owns the appointment
+      if (appointment.patientId.toString() !== req.patientId.toString()) {
+        return errorResponse(res, 403, "You are not authorized to perform this action.");
+      }
 
-    // Guard: Cannot choose time for a cancelled appointment
-    if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot choose a time for a cancelled appointment.",
-        data: null,
-      });
-    }
+      // Guard: Cannot choose time for a cancelled appointment
+      if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
+        return errorResponse(res, 400, "Cannot choose a time for a cancelled appointment.");
+      }
 
-    // Guard: Must be in reschedule_proposed state
-    if (appointment.status !== APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
-      return res.status(400).json({
-        success: false,
-        message:
+      // Guard: Must be in reschedule_proposed state
+      if (appointment.status !== APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
+        return errorResponse(
+          res,
+          400,
           "Cannot choose a time for an appointment that is not in the 'reschedule_proposed' state.",
-        data: null,
-      });
-    }
+        );
+      }
 
     if (
       optionIndex === undefined ||
@@ -407,7 +625,7 @@ export const chooseTime = async (req, res) => {
         },
       });
     } catch (timelineError) {
-      console.error(
+      logger.error(
         "[chooseTime] Failed to create timeline event:",
         timelineError.message,
       );
@@ -467,55 +685,47 @@ export const chooseTime = async (req, res) => {
 
       await Promise.allSettled([doctorNotification, patientNotification]);
     } catch (notificationError) {
-      console.error(
+      logger.error(
         "[chooseTime] Failed to send notifications:",
         notificationError.message,
       );
       // Don't fail the confirmation if notification fails
     }
 
-    res.json({
-      success: true,
-      message: "Appointment time has been confirmed.",
-      data: appointment,
-    });
+    return successResponse(res, appointment, "Appointment time has been confirmed.");
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
       data: null,
     });
   }
-};
+];
 
 /**
  * Cancel an appointment (patient-initiated)
  * Accessible to both doctor and patient, but with different rules
  */
-export const cancelAppointment = async (req, res) => {
-  try {
-    const appointment = await Appointment.findById(req.params.id);
+export const cancelAppointment = [
+  enforceOwnership(async (req) => {
+    return await Appointment.findById(req.params.id);
+  }),
+  async (req, res) => {
+    try {
+      const appointment = req.resource;
 
-    if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: "Appointment not found.",
-        data: null,
-      });
-    }
+      // Prevent double cancellation
+      if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
+        return res.status(400).json({
+          success: false,
+          message: "This appointment has already been cancelled.",
+          data: null,
+        });
+      }
 
-    // Prevent double cancellation
-    if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
-      return res.status(400).json({
-        success: false,
-        message: "This appointment has already been cancelled.",
-        data: null,
-      });
-    }
-
-    // Doctor/clinic-initiated cancellation (Scenario 3)
-    if (req.doctor && req.doctor._id) {
+      // Doctor/clinic-initiated cancellation (Scenario 3)
+      if (req.doctor && req.doctor._id) {
       if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
         return res.status(403).json({
           success: false,
@@ -547,7 +757,7 @@ export const cancelAppointment = async (req, res) => {
           },
         });
       } catch (timelineError) {
-        console.error(
+        logger.error(
           "[cancelAppointment] Failed to create timeline event:",
           timelineError.message,
         );
@@ -584,7 +794,7 @@ export const cancelAppointment = async (req, res) => {
           },
         });
       } catch (notificationError) {
-        console.error(
+        logger.error(
           "[cancelAppointment] Failed to send notification:",
           notificationError.message,
         );
@@ -650,7 +860,7 @@ export const cancelAppointment = async (req, res) => {
           },
         });
       } catch (timelineError) {
-        console.error(
+        logger.error(
           "[cancelAppointment] Failed to create timeline event:",
           timelineError.message,
         );
@@ -680,7 +890,7 @@ export const cancelAppointment = async (req, res) => {
           },
         });
       } catch (notificationError) {
-        console.error(
+        logger.error(
           "[cancelAppointment] Failed to send notification:",
           notificationError.message,
         );
@@ -701,14 +911,14 @@ export const cancelAppointment = async (req, res) => {
       data: null,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
       data: null,
     });
   }
-};
+];
 
 /**
  * Toggle visibility of an appointment for the patient
@@ -780,7 +990,7 @@ export const toggleHideAppointment = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",

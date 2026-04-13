@@ -1,5 +1,7 @@
 import mongoose from "mongoose";
 import bcryptjs from "bcryptjs";
+import logger from "../utils/logger.js";
+
 
 const doctorSchema = new mongoose.Schema(
   {
@@ -111,7 +113,7 @@ doctorSchema.methods.matchPassword = async function (enteredPassword) {
     return await bcryptjs.compare(enteredPassword, this.password);
   } catch (error) {
     // If bcrypt errors, fail authentication securely
-    console.error("Password comparison error:", error.message);
+    logger.error("Password comparison error:", error.message);
     return false;
   }
 };

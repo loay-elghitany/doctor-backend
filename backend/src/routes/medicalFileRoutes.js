@@ -9,7 +9,9 @@ import {
   downloadFileShared,
   softDeleteMedicalFile,
 } from "../controllers/medicalFileController.js";
-import { protect, doctorProtect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 import jwt from "jsonwebtoken";
 import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
@@ -42,14 +44,15 @@ const authEither = async (req, res, next) => {
       });
     }
     // If token includes role=doctor, treat as doctor; otherwise try patient lookup first
-    if (decoded.role === "doctor") {
+    if (decoded.role === ROLES.DOCTOR) {
       const doc = await Doctor.findById(decoded.id).select("-password");
       if (!doc)
         return res
           .status(401)
           .json({ success: false, message: "Doctor not found", data: null });
       req.user = doc;
-      req.user.role = "doctor";
+      req.user.role = ROLES.DOCTOR;
+      req.tenantId = doc._id;
       return next();
     }
 
@@ -60,7 +63,8 @@ const authEither = async (req, res, next) => {
         .status(401)
         .json({ success: false, message: "Patient not found", data: null });
     req.user = pat;
-    req.user.role = "patient";
+    req.user.role = ROLES.PATIENT;
+    req.patientId = pat._id;
     return next();
   } catch (err) {
     return res.status(401).json({
@@ -74,22 +78,43 @@ const authEither = async (req, res, next) => {
 const router = express.Router();
 
 // Patient upload their own files
-router.post("/upload", protect, uploadMedicalFile);
+router.post(
+  "/upload",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  uploadMedicalFile,
+);
 
 // Patient: list own files
-router.get("/my", protect, getMyMedicalFiles);
+router.get("/my", universalAuth, requireRole(ROLES.PATIENT), getMyMedicalFiles);
 
 // Doctor: list files for a patient
-router.get("/patient/:patientId", doctorProtect, getPatientFiles);
+router.get(
+  "/patient/:patientId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getPatientFiles,
+);
 
 // Doctor: list files for an appointment
-router.get("/appointment/:appointmentId", doctorProtect, getAppointmentFiles);
+router.get(
+  "/appointment/:appointmentId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getAppointmentFiles,
+);
 
 // Secure downloads (separate for patient/doctor to reuse existing auth middleware)
-router.get("/download/patient/:storedName", protect, downloadFileForPatient);
+router.get(
+  "/download/patient/:storedName",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  downloadFileForPatient,
+);
 router.get(
   "/download/doctor/:storedName",
-  doctorProtect,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
   downloadFileForDoctor,
 );
 
@@ -105,7 +130,17 @@ router.get("/download/:storedName", authEither, (req, res) => {
 });
 
 // Soft delete (patient or doctor)
-router.delete("/:id", protect, softDeleteMedicalFile);
-router.delete("/doctor/:id", doctorProtect, softDeleteMedicalFile);
+router.delete(
+  "/:id",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  softDeleteMedicalFile,
+);
+router.delete(
+  "/doctor/:id",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  softDeleteMedicalFile,
+);
 
 export default router;

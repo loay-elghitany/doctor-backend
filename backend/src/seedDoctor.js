@@ -1,14 +1,15 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import Doctor from "./models/Doctor.js";
+import logger from "./utils/logger.js";
 
 dotenv.config();
 
 // connect to DB
 mongoose
   .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error(err));
+  .then(() => logger.debug("MongoDB connected"))
+  .catch((err) => logger.error(err));
 
 const seedDoctor = async () => {
   try {
@@ -26,7 +27,7 @@ const seedDoctor = async () => {
       status: "active",
     });
 
-    console.log("Doctor created:", {
+    logger.debug("Doctor created:", {
       id: doctor._id,
       name: doctor.name,
       email: doctor.email,
@@ -34,7 +35,7 @@ const seedDoctor = async () => {
     });
     process.exit();
   } catch (error) {
-    console.error("Error creating doctor:", error);
+    logger.error("Error creating doctor:", error);
     process.exit(1);
   }
 };

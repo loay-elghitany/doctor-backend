@@ -5,8 +5,9 @@ import {
   getDoctorPrescriptions,
   deletePrescription,
 } from "../controllers/prescriptionController.js";
-import { protectDoctor } from "../middleware/doctorAuthMiddleware.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
@@ -20,21 +21,31 @@ const router = express.Router();
  * Doctor-only endpoint
  * Body: { appointmentId, medications, diagnosis, notes }
  */
-router.post("/", protectDoctor, createPrescription);
+router.post("/", universalAuth, requireRole(ROLES.DOCTOR), createPrescription);
 
 /**
  * GET /api/prescriptions/doctor
  * Get all prescriptions created by the logged-in doctor
  * Doctor-only endpoint
  */
-router.get("/doctor", protectDoctor, getDoctorPrescriptions);
+router.get(
+  "/doctor",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getDoctorPrescriptions,
+);
 
 /**
  * DELETE /api/prescriptions/:id
  * Delete a prescription
  * Doctor-only endpoint
  */
-router.delete("/:prescriptionId", protectDoctor, deletePrescription);
+router.delete(
+  "/:prescriptionId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  deletePrescription,
+);
 
 /**
  * SHARED ROUTES (Both doctor and patient)
@@ -48,7 +59,8 @@ router.delete("/:prescriptionId", protectDoctor, deletePrescription);
  */
 router.get(
   "/appointment/:appointmentId/doctor",
-  protectDoctor,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
   getAppointmentPrescriptions,
 );
 
@@ -56,6 +68,11 @@ router.get(
  * GET /api/prescriptions/appointment/:appointmentId (patient)
  * Get all prescriptions for an appointment - Patient access
  */
-router.get("/appointment/:appointmentId", protect, getAppointmentPrescriptions);
+router.get(
+  "/appointment/:appointmentId",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  getAppointmentPrescriptions,
+);
 
 export default router;

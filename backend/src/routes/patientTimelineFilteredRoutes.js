@@ -3,7 +3,9 @@ import {
   getPatientTimelineFiltered,
   getPatientTimelineStats,
 } from "../controllers/patientTimelineFilteredController.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
@@ -13,9 +15,19 @@ const router = express.Router();
  */
 
 // Get filtered patient timeline with search and pagination
-router.get("/filtered", protect, getPatientTimelineFiltered);
+router.get(
+  "/filtered",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  getPatientTimelineFiltered,
+);
 
 // Get timeline statistics
-router.get("/stats", protect, getPatientTimelineStats);
+router.get(
+  "/stats",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  getPatientTimelineStats,
+);
 
 export default router;

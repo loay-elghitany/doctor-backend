@@ -2,7 +2,9 @@ import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
 import Appointment from "../models/Appointment.js";
 import Prescription from "../models/Prescription.js";
 import Doctor from "../models/Doctor.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Enhanced Doctor Timeline Controller
@@ -19,7 +21,7 @@ import { debugLog, debugError } from "../utils/debug.js";
 export const getDoctorPatientsTimelineFiltered = async (req, res) => {
   try {
     if (!req.doctor || !req.doctor._id) {
-      debugLog(
+      logger.debug(
         "getDoctorPatientsTimelineFiltered",
         "Unauthorized - missing doctor context",
       );
@@ -45,7 +47,7 @@ export const getDoctorPatientsTimelineFiltered = async (req, res) => {
       highlightNewSince, // ISO date: show events newer than this
     } = req.query;
 
-    debugLog("getDoctorPatientsTimelineFiltered", "Fetching doctor timeline", {
+    logger.debug("getDoctorPatientsTimelineFiltered", "Fetching doctor timeline", {
       doctorId,
       filters: {
         patientId,
@@ -176,7 +178,7 @@ export const getDoctorPatientsTimelineFiltered = async (req, res) => {
       });
     }
 
-    debugLog("getDoctorPatientsTimelineFiltered", "Timeline fetched", {
+    logger.debug("getDoctorPatientsTimelineFiltered", "Timeline fetched", {
       total,
       returned: filteredEvents.length,
       newEventCount: filteredEvents.filter((e) => e.isNew).length,
@@ -204,7 +206,7 @@ export const getDoctorPatientsTimelineFiltered = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getDoctorPatientsTimelineFiltered",
       "Error fetching doctor timeline",
       error,
@@ -242,7 +244,7 @@ export const searchPatientEvents = async (req, res) => {
       });
     }
 
-    debugLog("searchPatientEvents", "Searching patient events", {
+    logger.debug("searchPatientEvents", "Searching patient events", {
       patientId,
       doctorId,
       searchText,
@@ -315,7 +317,7 @@ export const searchPatientEvents = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError("searchPatientEvents", "Error searching patient events", error);
+    logger.error("searchPatientEvents", "Error searching patient events", error);
     res.status(500).json({
       success: false,
       message: "Failed to search events",
@@ -341,7 +343,7 @@ export const getDoctorTimelineStats = async (req, res) => {
     const doctorId = req.doctor._id;
     const { startDate, endDate } = req.query;
 
-    debugLog("getDoctorTimelineStats", "Calculating doctor timeline stats", {
+    logger.debug("getDoctorTimelineStats", "Calculating doctor timeline stats", {
       doctorId,
     });
 
@@ -409,7 +411,7 @@ export const getDoctorTimelineStats = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getDoctorTimelineStats",
       "Error calculating timeline statistics",
       error,
@@ -438,7 +440,7 @@ export const markTimelineEventsAsRead = async (req, res) => {
 
     const doctorId = req.doctor._id;
 
-    debugLog("markTimelineEventsAsRead", "Marking events as read", {
+    logger.debug("markTimelineEventsAsRead", "Marking events as read", {
       doctorId,
     });
 
@@ -456,7 +458,7 @@ export const markTimelineEventsAsRead = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "markTimelineEventsAsRead",
       "Error marking events as read",
       error,

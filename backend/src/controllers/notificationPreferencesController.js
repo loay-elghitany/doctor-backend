@@ -1,5 +1,7 @@
 import NotificationPreferences from "../models/NotificationPreferences.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Notification Preferences Controller
@@ -23,7 +25,7 @@ export const getNotificationPreferences = async (req, res) => {
       });
     }
 
-    debugLog("getNotificationPreferences", "Fetching preferences", {
+    logger.debug("getNotificationPreferences", "Fetching preferences", {
       userId,
       userType,
     });
@@ -42,7 +44,7 @@ export const getNotificationPreferences = async (req, res) => {
         userType,
       });
 
-      debugLog("getNotificationPreferences", "Created default preferences", {
+      logger.debug("getNotificationPreferences", "Created default preferences", {
         userId,
       });
     }
@@ -52,7 +54,7 @@ export const getNotificationPreferences = async (req, res) => {
       data: preferences,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getNotificationPreferences",
       "Error fetching preferences",
       error,
@@ -94,7 +96,7 @@ export const updateNotificationPreferences = async (req, res) => {
       muteAll,
     } = req.body;
 
-    debugLog("updateNotificationPreferences", "Updating preferences", {
+    logger.debug("updateNotificationPreferences", "Updating preferences", {
       userId,
       userType,
     });
@@ -172,7 +174,7 @@ export const updateNotificationPreferences = async (req, res) => {
 
     await preferences.save();
 
-    debugLog("updateNotificationPreferences", "Preferences updated", {
+    logger.debug("updateNotificationPreferences", "Preferences updated", {
       userId,
     });
 
@@ -181,7 +183,7 @@ export const updateNotificationPreferences = async (req, res) => {
       data: preferences,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "updateNotificationPreferences",
       "Error updating preferences",
       error,
@@ -221,7 +223,7 @@ export const toggleNotificationType = async (req, res) => {
       });
     }
 
-    debugLog("toggleNotificationType", "Toggling notification type", {
+    logger.debug("toggleNotificationType", "Toggling notification type", {
       userId,
       channel,
       notificationType,
@@ -262,7 +264,7 @@ export const toggleNotificationType = async (req, res) => {
       });
     }
   } catch (error) {
-    debugError("toggleNotificationType", "Error toggling notification", error);
+    logger.error("toggleNotificationType", "Error toggling notification", error);
     res.status(500).json({
       success: false,
       message: "Failed to toggle notification",
@@ -345,7 +347,7 @@ export const isNotificationEnabled = async (
 
     return true;
   } catch (error) {
-    debugError(
+    logger.error(
       "isNotificationEnabled",
       "Error checking notification preference",
       error,
@@ -370,7 +372,7 @@ export const adminUpdatePreferences = async (req, res) => {
       });
     }
 
-    debugLog("adminUpdatePreferences", "Admin updating preferences", {
+    logger.debug("adminUpdatePreferences", "Admin updating preferences", {
       userId,
       userType,
       gdprOptOut,
@@ -408,7 +410,7 @@ export const adminUpdatePreferences = async (req, res) => {
       data: preferences,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "adminUpdatePreferences",
       "Error updating admin preferences",
       error,

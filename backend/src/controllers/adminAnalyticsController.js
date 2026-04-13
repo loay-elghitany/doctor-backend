@@ -1,7 +1,9 @@
 import Notification from "../models/Notification.js";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Enhanced Admin Analytics Controller
@@ -17,7 +19,7 @@ export const getAdvancedAnalytics = async (req, res) => {
   try {
     const { startDate, endDate, limit = 10 } = req.query;
 
-    debugLog("getAdvancedAnalytics", "Calculating advanced analytics", {
+    logger.debug("getAdvancedAnalytics", "Calculating advanced analytics", {
       startDate,
       endDate,
       limit,
@@ -215,7 +217,7 @@ export const getAdvancedAnalytics = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError("getAdvancedAnalytics", "Error calculating analytics", error);
+    logger.error("getAdvancedAnalytics", "Error calculating analytics", error);
     res.status(500).json({
       success: false,
       message: "Failed to calculate analytics",
@@ -231,7 +233,7 @@ export const getNotificationTrends = async (req, res) => {
   try {
     const { period = "daily", days = 30 } = req.query;
 
-    debugLog("getNotificationTrends", "Calculating trends", {
+    logger.debug("getNotificationTrends", "Calculating trends", {
       period,
       days,
     });
@@ -298,7 +300,7 @@ export const getNotificationTrends = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError("getNotificationTrends", "Error fetching trends", error);
+    logger.error("getNotificationTrends", "Error fetching trends", error);
     res.status(500).json({
       success: false,
       message: "Failed to fetch trends",
@@ -314,7 +316,7 @@ export const exportAnalyticsCSV = async (req, res) => {
   try {
     const { startDate, endDate, includeDetails } = req.query;
 
-    debugLog("exportAnalyticsCSV", "Exporting analytics to CSV", {
+    logger.debug("exportAnalyticsCSV", "Exporting analytics to CSV", {
       startDate,
       endDate,
     });
@@ -375,7 +377,7 @@ export const exportAnalyticsCSV = async (req, res) => {
     );
     res.send(csv);
   } catch (error) {
-    debugError("exportAnalyticsCSV", "Error exporting analytics", error);
+    logger.error("exportAnalyticsCSV", "Error exporting analytics", error);
     res.status(500).json({
       success: false,
       message: "Failed to export analytics",

@@ -1,7 +1,9 @@
 import Notification from "../models/Notification.js";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Admin: Get all notifications with advanced filtering
@@ -64,7 +66,7 @@ export const getAdminNotifications = async (req, res) => {
       }
     }
 
-    debugLog("getAdminNotifications", "Fetching notifications", {
+    logger.debug("getAdminNotifications", "Fetching notifications", {
       filters: { doctorId, patientId, type, status, recipientType },
       limit: parseInt(limit),
       offset: parseInt(offset),
@@ -132,7 +134,7 @@ export const getAdminNotifications = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getAdminNotifications",
       "Error fetching admin notifications",
       error,
@@ -164,7 +166,7 @@ export const getAdminNotificationStats = async (req, res) => {
       if (endDate) query.createdAt.$lte = new Date(endDate);
     }
 
-    debugLog("getAdminNotificationStats", "Calculating statistics", {
+    logger.debug("getAdminNotificationStats", "Calculating statistics", {
       doctorId,
       patientId,
     });
@@ -254,7 +256,7 @@ export const getAdminNotificationStats = async (req, res) => {
       data: stats,
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "getAdminNotificationStats",
       "Error calculating statistics",
       error,
@@ -274,7 +276,7 @@ export const retryFailedNotifications = async (req, res) => {
   try {
     const { limit = 10 } = req.query;
 
-    debugLog("retryFailedNotifications", "Retrying failed notifications", {
+    logger.debug("retryFailedNotifications", "Retrying failed notifications", {
       limit,
     });
 
@@ -286,7 +288,7 @@ export const retryFailedNotifications = async (req, res) => {
       .limit(parseInt(limit))
       .sort({ createdAt: -1 });
 
-    debugLog("retryFailedNotifications", "Found failed notifications", {
+    logger.debug("retryFailedNotifications", "Found failed notifications", {
       count: failedNotifications.length,
     });
 
@@ -310,7 +312,7 @@ export const retryFailedNotifications = async (req, res) => {
       },
     });
   } catch (error) {
-    debugError(
+    logger.error(
       "retryFailedNotifications",
       "Error retrying notifications",
       error,
@@ -344,7 +346,7 @@ export const exportNotifications = async (req, res) => {
       if (endDate) query.createdAt.$lte = new Date(endDate);
     }
 
-    debugLog("exportNotifications", "Exporting notifications", {
+    logger.debug("exportNotifications", "Exporting notifications", {
       filters: { doctorId, patientId, type, status },
     });
 
@@ -393,7 +395,7 @@ export const exportNotifications = async (req, res) => {
     );
     res.send(csv);
   } catch (error) {
-    debugError("exportNotifications", "Error exporting notifications", error);
+    logger.error("exportNotifications", "Error exporting notifications", error);
     res.status(500).json({
       success: false,
       message: "Failed to export notifications",

@@ -1,9 +1,12 @@
 import Prescription from "../models/Prescription.js";
 import Appointment from "../models/Appointment.js";
 import Doctor from "../models/Doctor.js";
-import { debugLog, debugError } from "../utils/debug.js";
+
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import auditService from "../services/auditService.js";
+import enforceOwnership from "../middleware/enforceOwnership.js";
+import logger from "../utils/logger.js";
+import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 /**
  * Create a new prescription for an appointment
@@ -16,7 +19,10 @@ export const createPrescription = async (req, res) => {
 
     // Guard: Ensure doctor context
     if (!req.doctor || !req.doctor._id) {
-      debugLog("createPrescription", "Unauthorized - missing doctor context");
+      logger.debug(
+        "createPrescription",
+        "Unauthorized - missing doctor context",
+      );
       return res.status(401).json({
         success: false,
         message: "Not authenticated as doctor",
@@ -41,7 +47,7 @@ export const createPrescription = async (req, res) => {
       });
     }
 
-    debugLog("createPrescription", "Creating prescription", {
+    logger.debug("createPrescription", "Creating prescription", {
       appointmentId,
       doctorId: req.doctor._id,
       medicationCount: medications.length,
@@ -52,7 +58,7 @@ export const createPrescription = async (req, res) => {
       await Appointment.findById(appointmentId).populate("doctorId patientId");
 
     if (!appointment) {
-      debugLog("createPrescription", "Appointment not found", {
+      logger.debug("createPrescription", "Appointment not found", {
         appointmentId,
       });
       return res.status(404).json({
@@ -64,7 +70,7 @@ export const createPrescription = async (req, res) => {
 
     // STEP 2: Verify doctor owns this appointment (tenant isolation)
     if (appointment.doctorId._id.toString() !== req.doctor._id.toString()) {
-      debugLog(
+      logger.debug(
         "createPrescription",
         "Doctor not authorized for this appointment",
         {
@@ -83,7 +89,7 @@ export const createPrescription = async (req, res) => {
     // STEP 3: Verify doctor subscription is active
     const doctor = await Doctor.findById(req.doctor._id);
     if (!doctor || !doctor.isActive) {
-      debugLog("createPrescription", "Doctor subscription inactive", {
+      logger.debug("createPrescription", "Doctor subscription inactive", {
         doctorId: req.doctor._id,
       });
       return res.status(403).json({
@@ -103,7 +109,7 @@ export const createPrescription = async (req, res) => {
       notes: notes || null,
     });
 
-    debugLog("createPrescription", "Prescription created successfully", {
+    logger.debug("createPrescription", "Prescription created successfully", {
       prescriptionId: prescription._id,
       appointmentId,
     });
@@ -131,7 +137,7 @@ export const createPrescription = async (req, res) => {
         },
       });
     } catch (timelineError) {
-      debugError(
+      logger.error(
         "createPrescription",
         "Failed to create timeline event",
         timelineError,
@@ -173,7 +179,7 @@ export const createPrescription = async (req, res) => {
         },
       });
     } catch (notificationError) {
-      debugError(
+      logger.error(
         "createPrescription",
         "Failed to send notification",
         notificationError,
@@ -187,7 +193,7 @@ export const createPrescription = async (req, res) => {
       data: prescription,
     });
   } catch (error) {
-    debugError("createPrescription", "Unexpected error", error);
+    logger.error("createPrescription", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error creating prescription",
@@ -217,7 +223,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
       });
     }
 
-    debugLog("getAppointmentPrescriptions", "Fetching prescriptions", {
+    logger.debug("getAppointmentPrescriptions", "Fetching prescriptions", {
       appointmentId,
       userId,
       userRole: isDoctor ? "doctor" : "patient",
@@ -238,7 +244,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
     if (isDoctor) {
       // Doctor: must own the appointment
       if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
-        debugLog("getAppointmentPrescriptions", "Doctor not authorized", {
+        logger.debug("getAppointmentPrescriptions", "Doctor not authorized", {
           appointmentId,
         });
         return res.status(403).json({
@@ -250,7 +256,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
     } else if (req.user) {
       // Patient: must own the appointment
       if (appointment.patientId.toString() !== req.user._id.toString()) {
-        debugLog("getAppointmentPrescriptions", "Patient not authorized", {
+        logger.debug("getAppointmentPrescriptions", "Patient not authorized", {
           appointmentId,
         });
         return res.status(403).json({
@@ -271,7 +277,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
       .sort({ createdAt: -1 })
       .lean();
 
-    debugLog("getAppointmentPrescriptions", "Prescriptions retrieved", {
+    logger.debug("getAppointmentPrescriptions", "Prescriptions retrieved", {
       appointmentId,
       count: prescriptions.length,
     });
@@ -282,7 +288,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
       data: prescriptions,
     });
   } catch (error) {
-    debugError("getAppointmentPrescriptions", "Unexpected error", error);
+    logger.error("getAppointmentPrescriptions", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error retrieving prescriptions",
@@ -306,9 +312,12 @@ export const getDoctorPrescriptions = async (req, res) => {
       });
     }
 
-    debugLog("getDoctorPrescriptions", "Fetching doctor prescriptions", {
+    logger.debug("getDoctorPrescriptions", "Fetching doctor prescriptions", {
       doctorId: req.doctor._id,
     });
+
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const totalItems = await Prescription.countDocuments({ doctorId: req.doctor._id });
 
     const prescriptions = await Prescription.find({
       doctorId: req.doctor._id,
@@ -316,9 +325,11 @@ export const getDoctorPrescriptions = async (req, res) => {
       .populate("appointmentId", "date timeSlot status")
       .populate("patientId", "name email")
       .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
       .lean();
 
-    debugLog("getDoctorPrescriptions", "Prescriptions retrieved", {
+    logger.debug("getDoctorPrescriptions", "Prescriptions retrieved", {
       doctorId: req.doctor._id,
       count: prescriptions.length,
     });
@@ -327,9 +338,10 @@ export const getDoctorPrescriptions = async (req, res) => {
       success: true,
       message: "Prescriptions retrieved successfully",
       data: prescriptions,
+      pagination: buildPagination(page, limit, totalItems),
     });
   } catch (error) {
-    debugError("getDoctorPrescriptions", "Unexpected error", error);
+    logger.error("getDoctorPrescriptions", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error retrieving prescriptions",
@@ -342,49 +354,44 @@ export const getDoctorPrescriptions = async (req, res) => {
  * Delete a prescription (soft delete via update)
  * Doctor-only endpoint
  */
-export const deletePrescription = async (req, res) => {
-  try {
-    const { prescriptionId } = req.params;
+export const deletePrescription = [
+  enforceOwnership(async (req) => {
+    return await Prescription.findById(req.params.prescriptionId);
+  }),
+  async (req, res) => {
+    try {
+      const { prescriptionId } = req.params;
 
-    // Guard: Ensure doctor context
-    if (!req.doctor || !req.doctor._id) {
-      return res.status(401).json({
-        success: false,
-        message: "Not authenticated as doctor",
-        data: null,
-      });
-    }
+      // Guard: Ensure doctor context
+      if (!req.doctor || !req.doctor._id) {
+        return res.status(401).json({
+          success: false,
+          message: "Not authenticated as doctor",
+          data: null,
+        });
+      }
 
-    debugLog("deletePrescription", "Deleting prescription", {
-      prescriptionId,
-      doctorId: req.doctor._id,
-    });
-
-    // Load prescription
-    const prescription = await Prescription.findById(prescriptionId);
-
-    if (!prescription) {
-      return res.status(404).json({
-        success: false,
-        message: "Prescription not found",
-        data: null,
-      });
-    }
-
-    // Verify doctor owns this prescription
-    if (prescription.doctorId.toString() !== req.doctor._id.toString()) {
-      debugLog("deletePrescription", "Doctor not authorized", {
+      logger.debug("deletePrescription", "Deleting prescription", {
         prescriptionId,
+        doctorId: req.doctor._id,
       });
-      return res.status(403).json({
-        success: false,
-        message: "Not authorized to delete this prescription",
-        data: null,
-      });
-    }
 
-    // Extra guard: ensure doctor's subscription is active (defense-in-depth)
-    const doctor = await Doctor.findById(req.doctor._id);
+      const prescription = req.resource;
+
+      // Verify doctor owns this prescription
+      if (prescription.doctorId.toString() !== req.doctor._id.toString()) {
+        logger.debug("deletePrescription", "Doctor not authorized", {
+          prescriptionId,
+        });
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to delete this prescription",
+          data: null,
+        });
+      }
+
+      // Extra guard: ensure doctor's subscription is active (defense-in-depth)
+      const doctor = await Doctor.findById(req.doctor._id);
     if (!doctor || !doctor.isActive) {
       // Log blocked delete attempt
       try {
@@ -398,7 +405,7 @@ export const deletePrescription = async (req, res) => {
           meta: { prescriptionId },
         });
       } catch (e) {
-        debugError("deletePrescription", "Audit logging failed", e);
+        logger.error("deletePrescription", "Audit logging failed", e);
       }
 
       return res.status(403).json({
@@ -411,7 +418,16 @@ export const deletePrescription = async (req, res) => {
     // Delete prescription
     await Prescription.deleteOne({ _id: prescriptionId });
 
-    debugLog("deletePrescription", "Prescription deleted", {
+    auditService.logAction({
+      actorType: "Doctor",
+      actorId: req.doctor._id,
+      action: "delete_prescription",
+      resourceType: "Prescription",
+      resourceId: prescriptionId,
+      meta: { doctorId: req.doctor._id, prescriptionId },
+    });
+
+    logger.debug("deletePrescription", "Prescription deleted", {
       prescriptionId,
     });
 
@@ -421,11 +437,11 @@ export const deletePrescription = async (req, res) => {
       data: null,
     });
   } catch (error) {
-    debugError("deletePrescription", "Unexpected error", error);
+    logger.error("deletePrescription", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error deleting prescription",
       data: null,
     });
   }
-};
+];

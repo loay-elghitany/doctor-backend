@@ -33,8 +33,15 @@ const patientSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Doctor",
       required: true,
+      index: true,
     },
-    // Clinic doctor auto-assigned at registration (optional for backward compatibility)
+    clinicSlug: {
+      type: String,
+      required: true,
+      lowercase: true,
+      index: true,
+    },
+    // Legacy patient doctor reference. No longer used for tenant resolution.
     assignedDoctorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Doctor",

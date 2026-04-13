@@ -1,9 +1,12 @@
 import express from "express";
 import { tenantScope } from "../middleware/tenantScope.js";
-import { protect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { enforceTenant } from "../middleware/enforceTenant.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 import {
   createAppointment,
-  getAppointments,
+  getUnifiedAppointments,
   chooseTime,
   cancelAppointment,
   toggleHideAppointment,
@@ -20,45 +23,104 @@ const router = express.Router();
  * POST /api/appointments
  * Create a new appointment
  * Patient submits: { date, timeSlot?: string, notes?: string }
- * Middleware: protect (verifies JWT), tenantScope (sets patientId, tenantId)
+ * Secretary submits: { patientId, date, timeSlot?: string, notes?: string }
+ * Middleware: universalAuth (verifies JWT for patient or secretary)
  * Returns: 201 with created appointment or 409 if time slot booked
  */
-router.post("/", protect, tenantScope, createAppointment);
+router.post(
+  "/",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.SECRETARY),
+  enforceTenant,
+  createAppointment,
+);
 
 /**
  * GET /api/appointments
- * Retrieve all appointments for logged-in patient
- * Middleware: protect (verifies JWT), tenantScope (sets patientId, tenantId)
- * Returns: 200 with appointments array
+ * Unified endpoint for all roles - returns appointments based on user role
+ * Doctor: all their appointments
+ * Secretary: appointments for their associated doctor
+ * Patient: their own appointments
+ * Middleware: universalAuth (verifies JWT for any role)
+ * Returns: 200 with filtered appointments array
  */
-router.get("/", protect, tenantScope, getAppointments);
+router.get(
+  "/",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),
+  enforceTenant,
+  getUnifiedAppointments,
+);
 
 /**
  * PATCH /api/appointments/:id/choose-time
  * Patient chooses one of the doctor's proposed reschedule times
  * Patient submits: { optionIndex: 0|1|2 }
- * Middleware: protect (verifies JWT), tenantScope (sets patientId, tenantId)
+ * Middleware: universalAuth + requireRole(ROLES.PATIENT), tenantScope (sets patientId, tenantId)
  * Returns: 200 with updated appointment or 409 if slot no longer available
  */
-router.patch("/:id/choose-time", protect, tenantScope, chooseTime);
+router.patch(
+  "/:id/choose-time",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  tenantScope,
+  chooseTime,
+);
 
 /**
  * PATCH /api/appointments/:id/cancel
  * Patient cancels a pending or reschedule_proposed appointment
  * Cannot cancel confirmed appointments
- * Middleware: protect (verifies JWT), tenantScope (sets patientId, tenantId)
+ * Middleware: universalAuth + requireRole(ROLES.PATIENT), tenantScope (sets patientId, tenantId)
  * Returns: 200 with cancelled appointment or 400 if invalid state
  */
-router.patch("/:id/cancel", protect, tenantScope, cancelAppointment);
+router.patch(
+  "/:id/cancel",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  tenantScope,
+  cancelAppointment,
+);
 
 /**
  * PATCH /api/appointments/:id/hide
  * Patient hides a cancelled appointment from their personal dashboard
  * Appointment record remains in database and is visible to doctor/admin
  * Patient submits: { hidden: true|false }
- * Middleware: protect (verifies JWT), tenantScope (sets patientId, tenantId)
+ * Middleware: universalAuth + requireRole(ROLES.PATIENT), tenantScope (sets patientId, tenantId)
  * Returns: 200 with updated appointment or 400 if not cancelled
  */
-router.patch("/:id/hide", protect, tenantScope, toggleHideAppointment);
+router.patch(
+  "/:id/hide",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  tenantScope,
+  toggleHideAppointment,
+);
+
+/**
+ * SECRETARY ROUTES
+ * All routes scoped to secretary's associated doctor
+ */
+
+/**
+ * GET /api/secretary/appointments
+ * Get all appointments for secretary's associated doctor
+ * Middleware: universalAuth + requireRole(ROLES.SECRETARY)
+ * Returns: 200 with appointments array
+ */
+router.get(
+  "/secretary/appointments",
+  universalAuth,
+  requireRole(ROLES.SECRETARY),
+  (req, res) => {
+    return getUnifiedAppointments(req, res);
+  },
+);
+
+/**
+ * Unified patient access is handled by /api/patients in patientRoutes.js.
+ * Legacy appointment-scoped patient endpoints have been removed.
+ */
 
 export default router;

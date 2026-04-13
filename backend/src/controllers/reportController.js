@@ -1,4 +1,6 @@
 import Report from "../models/Report.js";
+import logger from "../utils/logger.js";
+
 
 // إضافة تقرير جديد
 export const createReport = async (req, res) => {
@@ -28,7 +30,7 @@ export const createReport = async (req, res) => {
       data: report,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "Server error",
@@ -60,7 +62,7 @@ export const getReports = async (req, res) => {
       data: reports,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "Server error",

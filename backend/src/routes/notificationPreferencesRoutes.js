@@ -4,8 +4,9 @@ import {
   updateNotificationPreferences,
   toggleNotificationType,
 } from "../controllers/notificationPreferencesController.js";
-import { protect } from "../middleware/authMiddleware.js";
-import { protectDoctor } from "../middleware/doctorAuthMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 const router = express.Router();
 
 /**
@@ -16,12 +17,27 @@ const router = express.Router();
  */
 
 // Get current preferences
-router.get("/", [protect, protectDoctor], getNotificationPreferences);
+router.get(
+  "/",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  getNotificationPreferences,
+);
 
 // Update preferences
-router.put("/", [protect, protectDoctor], updateNotificationPreferences);
+router.put(
+  "/",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  updateNotificationPreferences,
+);
 
 // Toggle specific notification type
-router.post("/toggle", [protect, protectDoctor], toggleNotificationType);
+router.post(
+  "/toggle",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  toggleNotificationType,
+);
 
 export default router;

@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
+    "test:ci": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --silent",
+    "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watchAll",
     "seed": "node src/seedTestData.js",
     "seed:doctor": "node src/seedDoctor.js",
     "test:migrate": "node src/migrations/test_migrate_timeSlot_integration.js"
@@ -22,12 +24,19 @@
     "date-fns": "^2.30.0",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^7.0.0",
+    "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
     "twilio": "^5.13.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "babel-jest": "^29.7.0",
+    "jest": "^29.7.0",
     "mongodb-memory-server": "^8.12.1",
-    "nodemon": "^3.1.11"
+    "nodemon": "^3.1.11",
+    "supertest": "^6.3.3"
   }
 }

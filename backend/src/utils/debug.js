@@ -1,3 +1,5 @@
+import logger from "./logger.js";
+
 /**
  * Debug logging utility
  * Controls verbosity based on NODE_ENV (development vs production)
@@ -5,7 +7,8 @@
  */
 
 const DEBUG =
-  process.env.DEBUG === "true" || process.env.NODE_ENV === "development";
+  process.env.NODE_ENV !== "production" &&
+  (process.env.DEBUG === "true" || process.env.NODE_ENV === "development");
 
 export const debugLog = (context, message, data = null) => {
   if (!DEBUG) return;
@@ -14,16 +17,16 @@ export const debugLog = (context, message, data = null) => {
   const prefix = `[${timestamp}] [${context}]`;
 
   if (data) {
-    console.log(`${prefix} ${message}`, data);
+    logger.debug(`${prefix} ${message}`, data);
   } else {
-    console.log(`${prefix} ${message}`);
+    logger.debug(`${prefix} ${message}`);
   }
 };
 
 export const debugError = (context, message, error = null) => {
   if (!DEBUG) {
     // Still log errors even in production, but less verbose
-    console.error(`${context}: ${message}`);
+    logger.error(`${context}: ${message}`);
     return;
   }
 
@@ -31,9 +34,9 @@ export const debugError = (context, message, error = null) => {
   const prefix = `[${timestamp}] [${context}]`;
 
   if (error) {
-    console.error(`${prefix} ${message}`, error);
+    logger.error(`${prefix} ${message}`, error);
   } else {
-    console.error(`${prefix} ${message}`);
+    logger.error(`${prefix} ${message}`);
   }
 };
 

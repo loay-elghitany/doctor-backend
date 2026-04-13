@@ -2,7 +2,9 @@ import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
 import Appointment from "../models/Appointment.js";
 import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Get complete medical timeline for a specific patient
@@ -13,7 +15,7 @@ export const getDoctorPatientTimeline = async (req, res) => {
   try {
     // Guard: Ensure doctor context
     if (!req.doctor || !req.doctor._id) {
-      debugLog(
+      logger.debug(
         "getDoctorPatientTimeline",
         "Unauthorized - missing doctor context",
       );
@@ -36,7 +38,7 @@ export const getDoctorPatientTimeline = async (req, res) => {
       });
     }
 
-    debugLog("getDoctorPatientTimeline", "Fetching timeline", {
+    logger.debug("getDoctorPatientTimeline", "Fetching timeline", {
       patientId,
       doctorId,
     });
@@ -59,7 +61,7 @@ export const getDoctorPatientTimeline = async (req, res) => {
     });
 
     if (patientAppointments === 0) {
-      debugLog(
+      logger.debug(
         "getDoctorPatientTimeline",
         "Doctor not authorized for patient",
         {
@@ -86,7 +88,7 @@ export const getDoctorPatientTimeline = async (req, res) => {
       .lean()
       .exec();
 
-    debugLog("getDoctorPatientTimeline", "Timeline retrieved", {
+    logger.debug("getDoctorPatientTimeline", "Timeline retrieved", {
       patientId,
       eventCount: timelineEvents.length,
     });
@@ -97,7 +99,7 @@ export const getDoctorPatientTimeline = async (req, res) => {
       data: timelineEvents,
     });
   } catch (error) {
-    debugError("getDoctorPatientTimeline", "Unexpected error", error);
+    logger.error("getDoctorPatientTimeline", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error retrieving timeline",
@@ -133,7 +135,7 @@ export const addDoctorNote = async (req, res) => {
       });
     }
 
-    debugLog("addDoctorNote", "Adding doctor note", {
+    logger.debug("addDoctorNote", "Adding doctor note", {
       patientId,
       doctorId,
       appointmentId,
@@ -157,7 +159,7 @@ export const addDoctorNote = async (req, res) => {
     });
 
     if (patientAppointments === 0) {
-      debugLog("addDoctorNote", "Doctor not authorized for patient", {
+      logger.debug("addDoctorNote", "Doctor not authorized for patient", {
         patientId,
         doctorId,
       });
@@ -184,7 +186,7 @@ export const addDoctorNote = async (req, res) => {
       },
     });
 
-    debugLog("addDoctorNote", "Note created successfully", {
+    logger.debug("addDoctorNote", "Note created successfully", {
       patientId,
       timelineEventId: timelineEvent._id,
     });
@@ -195,7 +197,7 @@ export const addDoctorNote = async (req, res) => {
       data: timelineEvent,
     });
   } catch (error) {
-    debugError("addDoctorNote", "Unexpected error", error);
+    logger.error("addDoctorNote", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error adding note",
@@ -232,7 +234,7 @@ export const createTimelineEvent = async ({
       metadata,
     });
 
-    debugLog("createTimelineEvent", "Timeline event created", {
+    logger.debug("createTimelineEvent", "Timeline event created", {
       patientId,
       eventType,
       eventId: event._id,
@@ -240,7 +242,7 @@ export const createTimelineEvent = async ({
 
     return event;
   } catch (error) {
-    debugError("createTimelineEvent", "Failed to create timeline event", error);
+    logger.error("createTimelineEvent", "Failed to create timeline event", error);
     // Don't throw - timeline events are auxiliary and shouldn't break main flow
     return null;
   }
@@ -272,7 +274,7 @@ export const updateTimelineEventStatus = async ({
       "metadata.lastUpdated": new Date(),
     });
 
-    debugLog("updateTimelineEventStatus", "Timeline events updated", {
+    logger.debug("updateTimelineEventStatus", "Timeline events updated", {
       patientId,
       eventType,
       updatedCount: result.modifiedCount,
@@ -280,7 +282,7 @@ export const updateTimelineEventStatus = async ({
 
     return result;
   } catch (error) {
-    debugError("updateTimelineEventStatus", "Failed to update timeline", error);
+    logger.error("updateTimelineEventStatus", "Failed to update timeline", error);
     return null;
   }
 };

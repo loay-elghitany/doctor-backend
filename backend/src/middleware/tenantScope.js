@@ -1,5 +1,13 @@
-import jwt from "jsonwebtoken";
 import Patient from "../models/Patient.js";
+import logger from "../utils/logger.js";
+
+
+
+/**
+ * Tenant scope middleware logging guidance:
+ * - Only unexpected errors should be logged.
+ * - Avoid noisy logs on normal tenant resolution paths.
+ */
 
 /**
  * Tenant scope middleware for patient appointment routes
@@ -8,11 +16,10 @@ import Patient from "../models/Patient.js";
  * req.patientId: Patient's unique ID (for filtering patient-specific data)
  * req.tenantId: Doctor's ID (for multi-tenant clinic separation)
  *
- * Doctor resolution strategy (backward compatible):
+ * Doctor resolution strategy:
  * 1. If doctorId provided in request body → use it (explicit override)
- * 2. If patient.assignedDoctorId exists → use it (auto-assigned clinic doctor)
- * 3. If JWT contains doctorId → use it (fallback for old patients)
- * 4. Otherwise → reject with 400
+ * 2. If JWT contains doctorId → use it
+ * 3. Otherwise → reject with 400
  *
  * Used by: /api/appointments (POST, GET), /api/appointments/:id/choose-time (PATCH)
  *
@@ -39,14 +46,7 @@ export const tenantScope = async (req, res, next) => {
       return next();
     }
 
-    // Strategy 2: Fetch patient and check assignedDoctorId (NEW - auto-assignment)
-    const patient = await Patient.findById(req.patientId);
-    if (patient && patient.assignedDoctorId) {
-      req.tenantId = patient.assignedDoctorId;
-      return next();
-    }
-
-    // Strategy 3: Fallback to JWT doctorId (backward compatibility for old patients)
+    // Strategy 2: Use the authenticated user's explicit doctorId.
     if (req.user.doctorId) {
       req.tenantId = req.user.doctorId;
       return next();
@@ -60,7 +60,7 @@ export const tenantScope = async (req, res, next) => {
       data: null,
     });
   } catch (error) {
-    console.error("[tenantScope] error:", error);
+    logger.error("tenantScope", "Tenant scope error", error);
     return res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",

@@ -1,4 +1,13 @@
 import jwt from "jsonwebtoken";
+import logger from "../utils/logger.js";
+
+
+
+/**
+ * Admin auth middleware logging guidance:
+ * - Raw errors are only logged in development with DEBUG=true.
+ * - Production should only surface authentication failures.
+ */
 
 /**
  * Admin authentication middleware
@@ -54,7 +63,7 @@ export const protectAdmin = async (req, res, next) => {
     req.isAdmin = true;
     next();
   } catch (error) {
-    console.error("[adminAuthMiddleware] error:", error);
+    logger.error("adminAuthMiddleware", "Admin authentication failure", error);
     res.status(401).json({
       success: false,
       message: "Admin authentication failed",

@@ -4,6 +4,8 @@ import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 import { isPast, parseISO, isBefore } from "date-fns";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
+import logger from "../utils/logger.js";
+
 
 /**
  * Validate time slot format (HH:MM)
@@ -51,6 +53,107 @@ const hasBookingConflict = async (
  * Doctor identity resolved via req.doctor._id
  * Uses efficient indexing for performance
  */
+export const createDoctorAppointment = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor or secretary.",
+        data: null,
+      });
+    }
+
+    const { patientId, date, timeSlot = "09:00", notes } = req.body;
+
+    if (!patientId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: "patientId and date are required.",
+        data: null,
+      });
+    }
+
+    if (!isValidTimeSlot(timeSlot)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid timeSlot format. Use HH:MM.",
+        data: null,
+      });
+    }
+
+    let parsedDate;
+    try {
+      parsedDate = parseISO(date);
+    } catch (err) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid date format. Use ISO 8601.",
+        data: null,
+      });
+    }
+
+    if (isPast(parsedDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot create appointments in the past.",
+        data: null,
+      });
+    }
+
+    const patient = await Patient.findById(patientId);
+    if (!patient || patient.doctorId.toString() !== req.doctor._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Patient not found or does not belong to this doctor.",
+        data: null,
+      });
+    }
+
+    const conflict = await hasBookingConflict(
+      req.doctor._id,
+      parsedDate,
+      timeSlot,
+    );
+    if (conflict) {
+      return res.status(409).json({
+        success: false,
+        message: "This time slot is already booked.",
+        data: null,
+      });
+    }
+
+    const createdBy = req.secretary ? "secretary" : "doctor";
+    const createdById = req.secretary ? req.secretary._id : req.doctor._id;
+
+    const appointment = await Appointment.create({
+      doctorId: req.doctor._id,
+      patientId,
+      date: parsedDate,
+      timeSlot,
+      notes,
+      status: APPOINTMENT_STATUS.SCHEDULED,
+      createdBy,
+      createdByRef: req.secretary ? "Secretary" : "Doctor",
+      createdById,
+    });
+
+    // timeline + notification can be added if needed with doctor timeline flow
+
+    res.status(201).json({
+      success: true,
+      message: "Appointment created successfully.",
+      data: appointment,
+    });
+  } catch (error) {
+    logger.error("createDoctorAppointment error:", error);
+    res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred.",
+      data: null,
+    });
+  }
+};
+
 export const getDoctorAppointments = async (req, res) => {
   try {
     // Guard: Ensure doctor context
@@ -76,7 +179,7 @@ export const getDoctorAppointments = async (req, res) => {
       data: appointments,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -138,7 +241,7 @@ export const doctorDeleteAppointment = async (req, res) => {
     appointment.deletedAt = new Date();
     await appointment.save();
 
-    console.log("[doctorDeleteAppointment] soft-deleted appointment", {
+    logger.debug("[doctorDeleteAppointment] soft-deleted appointment", {
       appointmentId: appointment._id,
       doctorId: req.doctor._id,
     });
@@ -149,7 +252,7 @@ export const doctorDeleteAppointment = async (req, res) => {
       data: { id: appointment._id },
     });
   } catch (error) {
-    console.error("[doctorDeleteAppointment] error", error);
+    logger.error("[doctorDeleteAppointment] error", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -195,7 +298,7 @@ export const doctorBulkCleanupAppointments = async (req, res) => {
 
     const deletedCount = result.modifiedCount || result.nModified || 0;
 
-    console.log("[doctorBulkCleanupAppointments] soft-deleted appointments", {
+    logger.debug("[doctorBulkCleanupAppointments] soft-deleted appointments", {
       doctorId: req.doctor._id,
       deletedCount,
     });
@@ -206,7 +309,7 @@ export const doctorBulkCleanupAppointments = async (req, res) => {
       data: { deletedCount },
     });
   } catch (error) {
-    console.error("[doctorBulkCleanupAppointments] error", error);
+    logger.error("[doctorBulkCleanupAppointments] error", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -223,7 +326,7 @@ export const updateAppointmentStatus = async (req, res) => {
   try {
     const { status, date, timeSlot } = req.body;
 
-    console.log("[updateAppointmentStatus] Request received", {
+    logger.debug("[updateAppointmentStatus] Request received", {
       appointmentId: req.params.id,
       doctorId: req.doctor?._id,
       status,
@@ -289,7 +392,7 @@ export const updateAppointmentStatus = async (req, res) => {
       let finalStatus = status;
       if (status === APPOINTMENT_STATUS.CONFIRMED) {
         finalStatus = APPOINTMENT_STATUS.SCHEDULED;
-        console.log(
+        logger.debug(
           "[updateAppointmentStatus] Converting legacy CONFIRMED to SCHEDULED",
           { appointmentId: appointment._id },
         );
@@ -384,7 +487,7 @@ export const updateAppointmentStatus = async (req, res) => {
       appointment.timeSlot = timeSlot;
     }
 
-    console.log("[updateAppointmentStatus] Before save", {
+    logger.debug("[updateAppointmentStatus] Before save", {
       appointmentId: appointment._id,
       newStatus: appointment.status,
       hasDate: !!appointment.date,
@@ -393,12 +496,12 @@ export const updateAppointmentStatus = async (req, res) => {
 
     try {
       await appointment.save();
-      console.log("[updateAppointmentStatus] Saved successfully", {
+      logger.debug("[updateAppointmentStatus] Saved successfully", {
         appointmentId: appointment._id,
         newStatus: appointment.status,
       });
     } catch (saveError) {
-      console.error(
+      logger.error(
         "[updateAppointmentStatus] Mongoose save error:",
         saveError.message,
       );
@@ -440,7 +543,7 @@ export const updateAppointmentStatus = async (req, res) => {
           },
         });
       } catch (timelineError) {
-        console.error(
+        logger.error(
           "[updateAppointmentStatus] Failed to create timeline event:",
           timelineError.message,
         );
@@ -492,7 +595,7 @@ export const updateAppointmentStatus = async (req, res) => {
           },
         });
       } catch (notificationError) {
-        console.error(
+        logger.error(
           "[updateAppointmentStatus] Failed to send notification:",
           notificationError.message,
         );
@@ -506,7 +609,7 @@ export const updateAppointmentStatus = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -521,7 +624,7 @@ export const updateAppointmentStatus = async (req, res) => {
  */
 export const proposeTimes = async (req, res) => {
   try {
-    console.log("[proposeTimes] Request received", {
+    logger.debug("[proposeTimes] Request received", {
       appointmentId: req.params.id,
       doctorId: req.doctor?._id,
       bodyStructure: Object.keys(req.body),
@@ -681,7 +784,7 @@ export const proposeTimes = async (req, res) => {
     appointment.status = APPOINTMENT_STATUS.RESCHEDULE_PROPOSED;
     appointment.rescheduleCount += 1;
 
-    console.log("[proposeTimes] Before save", {
+    logger.debug("[proposeTimes] Before save", {
       appointmentId: appointment._id,
       optionCount: validatedOptions.length,
       newStatus: appointment.status,
@@ -689,12 +792,12 @@ export const proposeTimes = async (req, res) => {
 
     try {
       await appointment.save();
-      console.log("[proposeTimes] Saved successfully", {
+      logger.debug("[proposeTimes] Saved successfully", {
         appointmentId: appointment._id,
         optionCount: appointment.rescheduleOptions.length,
       });
     } catch (saveError) {
-      console.error("[proposeTimes] Mongoose save error:", saveError.message);
+      logger.error("[proposeTimes] Mongoose save error:", saveError.message);
       throw saveError;
     }
 
@@ -731,7 +834,7 @@ export const proposeTimes = async (req, res) => {
         },
       });
     } catch (notificationError) {
-      console.error(
+      logger.error(
         "[proposeTimes] Failed to send notification:",
         notificationError.message,
       );
@@ -744,7 +847,7 @@ export const proposeTimes = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -818,7 +921,7 @@ export const cancelAppointment = async (req, res) => {
         },
       });
     } catch (timelineError) {
-      console.error(
+      logger.error(
         "[cancelAppointment] Failed to create timeline event:",
         timelineError.message,
       );
@@ -860,7 +963,7 @@ export const cancelAppointment = async (req, res) => {
         },
       });
     } catch (notificationError) {
-      console.error(
+      logger.error(
         "[cancelAppointment] Failed to send notification:",
         notificationError.message,
       );
@@ -873,7 +976,7 @@ export const cancelAppointment = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -949,7 +1052,7 @@ export const markAppointmentCompleted = async (req, res) => {
 
     await appointment.save();
 
-    console.log("[markAppointmentCompleted] Appointment marked completed", {
+    logger.debug("[markAppointmentCompleted] Appointment marked completed", {
       appointmentId: appointment._id,
       doctorId: req.doctor._id,
       previousStatus,
@@ -974,7 +1077,7 @@ export const markAppointmentCompleted = async (req, res) => {
         },
       });
     } catch (timelineError) {
-      console.error(
+      logger.error(
         "[markAppointmentCompleted] Failed to create timeline event:",
         timelineError.message,
       );
@@ -1006,7 +1109,7 @@ export const markAppointmentCompleted = async (req, res) => {
         },
       });
     } catch (notificationError) {
-      console.error(
+      logger.error(
         "[markAppointmentCompleted] Failed to send notification:",
         notificationError.message,
       );
@@ -1019,7 +1122,7 @@ export const markAppointmentCompleted = async (req, res) => {
       data: appointment,
     });
   } catch (error) {
-    console.error("[markAppointmentCompleted] error", error);
+    logger.error("[markAppointmentCompleted] error", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",

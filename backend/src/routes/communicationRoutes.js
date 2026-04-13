@@ -3,17 +3,25 @@ import {
   getWhatsAppLinkForPatient,
   getWhatsAppLinkForDoctor,
 } from "../controllers/communicationController.js";
-import { protect, doctorProtect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
 // GET /api/communication/whatsapp/doctor (patient only)
-router.get("/whatsapp/doctor", protect, getWhatsAppLinkForDoctor);
+router.get(
+  "/whatsapp/doctor",
+  universalAuth,
+  requireRole(ROLES.PATIENT),
+  getWhatsAppLinkForDoctor,
+);
 
 // GET /api/communication/whatsapp/patient/:patientId (doctor only)
 router.get(
   "/whatsapp/patient/:patientId",
-  doctorProtect,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
   getWhatsAppLinkForPatient,
 );
 

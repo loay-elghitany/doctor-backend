@@ -1,6 +1,8 @@
 import Appointment from "../models/Appointment.js";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 import { getStatusLabel } from "../utils/appointmentUtils.js";
+import logger from "../utils/logger.js";
+
 
 // Get upcoming appointments for a patient
 export const getUpcomingAppointments = async (req, res) => {
@@ -37,7 +39,7 @@ export const getUpcomingAppointments = async (req, res) => {
       data: upcomingAppointments,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",
@@ -89,7 +91,7 @@ export const getGroupedAppointments = async (req, res) => {
       data: groupedAppointments,
     });
   } catch (error) {
-    console.error(error);
+    logger.error("UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",

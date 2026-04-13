@@ -7,8 +7,9 @@ import {
   deleteNotification,
   getAllNotifications,
 } from "../controllers/notificationController.js";
-import { protect } from "../middleware/authMiddleware.js";
-import { protectDoctor } from "../middleware/doctorAuthMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
@@ -24,8 +25,12 @@ const router = express.Router();
  * Middleware: protect or protectDoctor (both patient and doctor access)
  * Returns: 200 with paginated notifications array
  */
-router.get("/", protect, getNotificationHistory);
-router.get("/", protectDoctor, getNotificationHistory);
+router.get(
+  "/",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  getNotificationHistory,
+);
 
 /**
  * GET /api/notifications/stats
@@ -33,8 +38,12 @@ router.get("/", protectDoctor, getNotificationHistory);
  * Middleware: protect or protectDoctor
  * Returns: 200 with stats object
  */
-router.get("/stats", protect, getNotificationStats);
-router.get("/stats", protectDoctor, getNotificationStats);
+router.get(
+  "/stats",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  getNotificationStats,
+);
 
 /**
  * GET /api/notifications/:notificationId
@@ -42,8 +51,12 @@ router.get("/stats", protectDoctor, getNotificationStats);
  * Middleware: protect or protectDoctor with ownership verification
  * Returns: 200 with notification details or 404 if not found
  */
-router.get("/:notificationId", protect, getNotificationDetails);
-router.get("/:notificationId", protectDoctor, getNotificationDetails);
+router.get(
+  "/:notificationId",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  getNotificationDetails,
+);
 
 /**
  * PATCH /api/notifications/:notificationId/read
@@ -51,8 +64,12 @@ router.get("/:notificationId", protectDoctor, getNotificationDetails);
  * Middleware: protect or protectDoctor
  * Returns: 200 with updated notification or 404 if not found
  */
-router.patch("/:notificationId/read", protect, markNotificationAsRead);
-router.patch("/:notificationId/read", protectDoctor, markNotificationAsRead);
+router.patch(
+  "/:notificationId/read",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  markNotificationAsRead,
+);
 
 /**
  * DELETE /api/notifications/:notificationId
@@ -60,8 +77,12 @@ router.patch("/:notificationId/read", protectDoctor, markNotificationAsRead);
  * Middleware: protect or protectDoctor with ownership verification
  * Returns: 200 with deleted notification ID or 404 if not found
  */
-router.delete("/:notificationId", protect, deleteNotification);
-router.delete("/:notificationId", protectDoctor, deleteNotification);
+router.delete(
+  "/:notificationId",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
+  deleteNotification,
+);
 
 /**
  * ADMIN ROUTES

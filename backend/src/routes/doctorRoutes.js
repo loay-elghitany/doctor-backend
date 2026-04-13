@@ -7,12 +7,15 @@ import {
   getPatientAppointmentsForDoctor,
 } from "../controllers/doctorController.js";
 import Doctor from "../models/Doctor.js";
-import { doctorProtect } from "../middleware/authMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { protectAdmin } from "../middleware/adminAuthMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
 // إنشاء دكتور (يدوي – من الأدمن)
-router.post("/register", createDoctor);
+router.post("/register", protectAdmin, createDoctor);
 
 //testing route
 
@@ -24,15 +27,21 @@ router.get("/", async (req, res) => {
 router.post("/login", loginDoctor);
 
 // Get doctor profile (protected)
-router.get("/me", doctorProtect, getDoctorProfile);
+router.get("/me", universalAuth, requireRole(ROLES.DOCTOR), getDoctorProfile);
 
-// Get all patients for the logged-in doctor (protected)
-router.get("/patients", doctorProtect, getDoctorPatients);
+// Get all patients for the logged-in doctor or secretary (protected)
+router.get(
+  "/patients",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  getDoctorPatients,
+);
 
 // Get appointments for a specific patient (protected)
 router.get(
   "/patients/:patientId/appointments",
-  doctorProtect,
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
   getPatientAppointmentsForDoctor,
 );
 

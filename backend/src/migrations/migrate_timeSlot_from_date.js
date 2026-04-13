@@ -4,6 +4,8 @@ import { fileURLToPath } from "url";
 import { dirname } from "path";
 import connectDB from "../config/db.js";
 import Appointment from "../models/Appointment.js";
+import logger from "../utils/logger.js";
+
 
 dotenv.config();
 
@@ -30,7 +32,7 @@ const migrate = async ({ dryRun = false } = {}) => {
     };
 
     const totalToProcess = await Appointment.countDocuments(query);
-    console.log(`Found ${totalToProcess} appointment(s) missing timeSlot.`);
+    logger.debug(`Found ${totalToProcess} appointment(s) missing timeSlot.`);
 
     if (totalToProcess === 0) {
       return;
@@ -61,23 +63,23 @@ const migrate = async ({ dryRun = false } = {}) => {
               timeSlot = candidate;
             } else {
               // Fallback to default if somehow malformed after extraction
-              console.warn(
+              logger.warn(
                 `Appointment ${appt._id}: extracted time slot '${candidate}' is invalid, using default ${TIME_SLOT_DEFAULT}`,
               );
             }
           } else {
-            console.warn(
+            logger.warn(
               `Appointment ${appt._id}: date is malformed or invalid, setting timeSlot to default ${TIME_SLOT_DEFAULT}`,
             );
           }
         } else {
-          console.warn(
+          logger.warn(
             `Appointment ${appt._id}: date is missing, setting timeSlot to default ${TIME_SLOT_DEFAULT}`,
           );
         }
 
         if (dryRun) {
-          console.log(
+          logger.debug(
             `DRYRUN: Would set appointment ${appt._id} timeSlot='${timeSlot}'`,
           );
           skipped++;
@@ -105,20 +107,20 @@ const migrate = async ({ dryRun = false } = {}) => {
         }
       } catch (err) {
         errors++;
-        console.error(
+        logger.error(
           `Error processing appointment ${appt._id}:`,
           err.message || err,
         );
       }
     }
 
-    console.log("Migration complete.");
-    console.log(`Processed: ${processed}`);
-    console.log(`Updated:   ${updated}`);
-    console.log(`Skipped:   ${skipped}`);
-    console.log(`Errors:    ${errors}`);
+    logger.debug("Migration complete.");
+    logger.debug(`Processed: ${processed}`);
+    logger.debug(`Updated:   ${updated}`);
+    logger.debug(`Skipped:   ${skipped}`);
+    logger.debug(`Errors:    ${errors}`);
   } catch (err) {
-    console.error("Migration failed:", err);
+    logger.error("Migration failed:", err);
     try {
     } catch (e) {
       /* ignore */

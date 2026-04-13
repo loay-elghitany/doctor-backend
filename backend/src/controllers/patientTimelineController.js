@@ -1,6 +1,8 @@
 import Appointment from "../models/Appointment.js";
 import Prescription from "../models/Prescription.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 /**
  * Get aggregated medical timeline for authenticated patient
@@ -11,7 +13,7 @@ export const getPatientTimeline = async (req, res) => {
   try {
     // Guard: Ensure patient context
     if (!req.user || !req.user._id) {
-      debugLog("getPatientTimeline", "Unauthorized - missing patient context");
+      logger.debug("getPatientTimeline", "Unauthorized - missing patient context");
       return res.status(401).json({
         success: false,
         message: "Not authenticated as patient",
@@ -21,7 +23,7 @@ export const getPatientTimeline = async (req, res) => {
 
     const patientId = req.user._id;
 
-    debugLog("getPatientTimeline", "Fetching timeline", {
+    logger.debug("getPatientTimeline", "Fetching timeline", {
       patientId,
     });
 
@@ -96,7 +98,7 @@ export const getPatientTimeline = async (req, res) => {
       (a, b) => new Date(b.eventDate) - new Date(a.eventDate),
     );
 
-    debugLog("getPatientTimeline", "Timeline compiled", {
+    logger.debug("getPatientTimeline", "Timeline compiled", {
       patientId,
       appointmentCount: appointmentEvents.length,
       prescriptionCount: prescriptionEvents.length,
@@ -109,7 +111,7 @@ export const getPatientTimeline = async (req, res) => {
       data: timelineEvents,
     });
   } catch (error) {
-    debugError("getPatientTimeline", "Unexpected error", error);
+    logger.error("getPatientTimeline", "Unexpected error", error);
     res.status(500).json({
       success: false,
       message: "Server error retrieving timeline",

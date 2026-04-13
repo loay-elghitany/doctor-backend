@@ -1,6 +1,8 @@
 import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
-import { debugLog, debugError } from "../utils/debug.js";
+import logger from "../utils/logger.js";
+
+
 
 // GET /api/communication/whatsapp/patient/:patientId (doctor only)
 export const getWhatsAppLinkForPatient = async (req, res) => {
@@ -19,10 +21,7 @@ export const getWhatsAppLinkForPatient = async (req, res) => {
     }
 
     // Check if doctor is assigned to this patient
-    if (
-      String(patient.doctorId) !== String(doctor._id) &&
-      String(patient.assignedDoctorId) !== String(doctor._id)
-    ) {
+    if (String(patient.doctorId) !== String(doctor._id)) {
       return res.status(403).json({
         success: false,
         message: "Not authorized to communicate with this patient",
@@ -52,7 +51,7 @@ export const getWhatsAppLinkForPatient = async (req, res) => {
       },
     });
   } catch (err) {
-    debugError(
+    logger.error(
       "getWhatsAppLinkForPatient",
       "Error generating WhatsApp link",
       err,
@@ -71,7 +70,7 @@ export const getWhatsAppLinkForDoctor = async (req, res) => {
     const patient = req.user;
 
     // Get assigned doctor
-    const doctorId = patient.assignedDoctorId || patient.doctorId;
+    const doctorId = patient.doctorId;
     if (!doctorId) {
       return res.status(400).json({
         success: false,
@@ -111,7 +110,7 @@ export const getWhatsAppLinkForDoctor = async (req, res) => {
       },
     });
   } catch (err) {
-    debugError(
+    logger.error(
       "getWhatsAppLinkForDoctor",
       "Error generating WhatsApp link",
       err,

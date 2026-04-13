@@ -1,5 +1,7 @@
 import express from "express";
-import { protectDoctor } from "../middleware/doctorAuthMiddleware.js";
+import { universalAuth } from "../middleware/universalAuth.js";
+import { requireRole } from "../middleware/rbacMiddleware.js";
+import { ROLES } from "../constants/roles.js";
 import {
   getDoctorPatientTimeline,
   addDoctorNote,
@@ -13,7 +15,12 @@ const router = express.Router();
  * @access  Private (Doctor only)
  * @params  patientId - Patient ID
  */
-router.get("/:patientId/timeline", protectDoctor, getDoctorPatientTimeline);
+router.get(
+  "/:patientId/timeline",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getDoctorPatientTimeline,
+);
 
 /**
  * @route   POST /api/doctor/patients/:patientId/timeline-note
@@ -21,6 +28,11 @@ router.get("/:patientId/timeline", protectDoctor, getDoctorPatientTimeline);
  * @access  Private (Doctor only)
  * @body    { noteContent: string, appointmentId?: ObjectId }
  */
-router.post("/:patientId/timeline-note", protectDoctor, addDoctorNote);
+router.post(
+  "/:patientId/timeline-note",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  addDoctorNote,
+);
 
 export default router;

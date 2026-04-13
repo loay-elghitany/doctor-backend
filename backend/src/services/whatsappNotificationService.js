@@ -1,8 +1,10 @@
 import Notification from "../models/Notification.js";
 import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
-import { debugLog, debugError } from "../utils/debug.js";
+
 import auditService from "./auditService.js";
+import logger from "../utils/logger.js";
+
 
 /**
  * WhatsApp Notification Service
@@ -42,7 +44,7 @@ class WhatsAppNotificationService {
     this.isConfigured = false;
 
     // Log selected provider at startup
-    debugLog("WhatsAppNotificationService", "Provider selected", {
+    logger.debug("WhatsAppNotificationService", "Provider selected", {
       provider: this.provider,
       enabled: this.isEnabled,
     });
@@ -57,7 +59,7 @@ class WhatsAppNotificationService {
     try {
       if (this.provider === "TWILIO") {
         if (!this.accountSid || !this.authToken || !this.fromPhoneNumber) {
-          debugError(
+          logger.error(
             "WhatsAppNotificationService",
             "Missing Twilio configuration",
             new Error(
@@ -68,7 +70,7 @@ class WhatsAppNotificationService {
         }
       } else if (this.provider === "WHATSAPP_CLOUD") {
         if (!this.whatsappCloudApiToken || !this.whatsappPhoneNumberId) {
-          debugError(
+          logger.error(
             "WhatsAppNotificationService",
             "Missing WhatsApp Cloud configuration",
             new Error(
@@ -81,7 +83,7 @@ class WhatsAppNotificationService {
 
       return true;
     } catch (err) {
-      debugError(
+      logger.error(
         "WhatsAppNotificationService",
         "Configuration validation error",
         err,
@@ -96,19 +98,19 @@ class WhatsAppNotificationService {
    */
   async sendMessage(phoneNumber, message) {
     if (!this.isEnabled) {
-      debugLog("WhatsAppNotificationService", "Notifications disabled", {
+      logger.debug("WhatsAppNotificationService", "Notifications disabled", {
         phoneNumber,
       });
       return { success: false, reason: "Notifications disabled" };
     }
     if (!this.isConfigured) {
-      debugLog("WhatsAppNotificationService", "Provider not configured", {
+      logger.debug("WhatsAppNotificationService", "Provider not configured", {
         provider: this.provider,
       });
       return { success: false, reason: "WhatsApp provider not configured" };
     }
     try {
-      debugLog("WhatsAppNotificationService", "Sending message", {
+      logger.debug("WhatsAppNotificationService", "Sending message", {
         provider: this.provider,
         phoneNumber: this.maskPhoneNumber(phoneNumber),
       });
@@ -121,7 +123,7 @@ class WhatsAppNotificationService {
 
       return { success: false, reason: "Unknown provider" };
     } catch (error) {
-      debugError(
+      logger.error(
         "WhatsAppNotificationService",
         "Failed to send message",
         error,
@@ -154,7 +156,7 @@ class WhatsAppNotificationService {
         provider: "TWILIO",
       };
     } catch (error) {
-      debugError("WhatsAppNotificationService", "Twilio send failed", error);
+      logger.error("WhatsAppNotificationService", "Twilio send failed", error);
       return { success: false, reason: error.message };
     }
   }
@@ -202,7 +204,7 @@ class WhatsAppNotificationService {
         provider: "WHATSAPP_CLOUD",
       };
     } catch (error) {
-      debugError(
+      logger.error(
         "WhatsAppNotificationService",
         "WhatsApp Cloud API send failed",
         error,
@@ -267,7 +269,7 @@ export const createAndSendNotification = async (options) => {
   } = options;
 
   try {
-    debugLog("createAndSendNotification", "Creating notification", {
+    logger.debug("createAndSendNotification", "Creating notification", {
       recipientId,
       recipientType,
       type,
@@ -288,7 +290,7 @@ export const createAndSendNotification = async (options) => {
     }
 
     if (!phoneNumber) {
-      debugLog("createAndSendNotification", "No phone number found", {
+      logger.debug("createAndSendNotification", "No phone number found", {
         recipientId,
         recipientType,
       });
@@ -311,7 +313,7 @@ export const createAndSendNotification = async (options) => {
         failureReason: "No phone number on file",
       });
 
-      debugLog("createAndSendNotification", "Created failed notification", {
+      logger.debug("createAndSendNotification", "Created failed notification", {
         notificationId: failedNotification._id,
         recipientId,
       });
@@ -325,7 +327,7 @@ export const createAndSendNotification = async (options) => {
       recipient &&
       recipient.isActive === false
     ) {
-      debugLog(
+      logger.debug(
         "createAndSendNotification",
         "Doctor subscription inactive - suppressing notification",
         {
@@ -364,7 +366,7 @@ export const createAndSendNotification = async (options) => {
           meta: { recipientId, recipientType, type },
         });
       } catch (e) {
-        debugError(
+        logger.error(
           "createAndSendNotification",
           "Audit logging failed for suppressed notification",
           e,
@@ -394,14 +396,14 @@ export const createAndSendNotification = async (options) => {
     // Send message asynchronously (non-blocking)
     sendNotificationAsync(notification);
 
-    debugLog("createAndSendNotification", "Notification created", {
+    logger.debug("createAndSendNotification", "Notification created", {
       notificationId: notification._id,
       recipientId,
     });
 
     return { success: true, notificationId: notification._id };
   } catch (error) {
-    debugError(
+    logger.error(
       "createAndSendNotification",
       "Failed to create notification",
       error,
@@ -416,7 +418,7 @@ export const createAndSendNotification = async (options) => {
  */
 async function sendNotificationAsync(notification) {
   try {
-    debugLog("sendNotificationAsync", "Sending", {
+    logger.debug("sendNotificationAsync", "Sending", {
       notificationId: notification._id,
     });
 
@@ -430,7 +432,7 @@ async function sendNotificationAsync(notification) {
       notification.sentAt = new Date();
       notification.whatsappMessageId = result.messageId;
       await notification.save();
-      debugLog("sendNotificationAsync", "Sent successfully", {
+      logger.debug("sendNotificationAsync", "Sent successfully", {
         notificationId: notification._id,
       });
     } else {
@@ -438,19 +440,19 @@ async function sendNotificationAsync(notification) {
       notification.failureReason = result.reason;
       notification.retryCount += 1;
       await notification.save();
-      debugLog("sendNotificationAsync", "Send failed", {
+      logger.debug("sendNotificationAsync", "Send failed", {
         notificationId: notification._id,
         reason: result.reason,
       });
     }
   } catch (error) {
-    debugError("sendNotificationAsync", "Error sending notification", error);
+    logger.error("sendNotificationAsync", "Error sending notification", error);
     if (notification && !notification.isDeleted) {
       notification.status = "failed";
       notification.failureReason = error.message;
       notification.retryCount += 1;
       await notification.save().catch((saveError) => {
-        debugError(
+        logger.error(
           "sendNotificationAsync",
           "Failed to save notification error",
           saveError,
@@ -466,7 +468,7 @@ async function sendNotificationAsync(notification) {
  */
 export const retryFailedNotifications = async () => {
   try {
-    debugLog("retryFailedNotifications", "Starting retry job");
+    logger.debug("retryFailedNotifications", "Starting retry job");
 
     const failedNotifications = await Notification.find({
       status: "failed",
@@ -474,7 +476,7 @@ export const retryFailedNotifications = async () => {
       isDeleted: { $ne: true },
     }).limit(10);
 
-    debugLog("retryFailedNotifications", "Found failed notifications", {
+    logger.debug("retryFailedNotifications", "Found failed notifications", {
       count: failedNotifications.length,
     });
 
@@ -482,7 +484,7 @@ export const retryFailedNotifications = async () => {
       sendNotificationAsync(notification);
     }
   } catch (error) {
-    debugError(
+    logger.error(
       "retryFailedNotifications",
       "Error retrying notifications",
       error,
@@ -508,7 +510,7 @@ export const getNotificationStatus = async (notificationId) => {
       retryCount: notification.retryCount,
     };
   } catch (error) {
-    debugError(
+    logger.error(
       "getNotificationStatus",
       "Error getting notification status",
       error,
