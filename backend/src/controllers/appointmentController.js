@@ -544,12 +544,20 @@ export const chooseTime = [
 
       // Ensure the patient owns the appointment
       if (appointment.patientId.toString() !== req.patientId.toString()) {
-        return errorResponse(res, 403, "You are not authorized to perform this action.");
+        return errorResponse(
+          res,
+          403,
+          "You are not authorized to perform this action.",
+        );
       }
 
       // Guard: Cannot choose time for a cancelled appointment
       if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
-        return errorResponse(res, 400, "Cannot choose a time for a cancelled appointment.");
+        return errorResponse(
+          res,
+          400,
+          "Cannot choose a time for a cancelled appointment.",
+        );
       }
 
       // Guard: Must be in reschedule_proposed state
@@ -561,146 +569,151 @@ export const chooseTime = [
         );
       }
 
-    if (
-      optionIndex === undefined ||
-      optionIndex < 0 ||
-      optionIndex > 2 ||
-      !appointment.rescheduleOptions[optionIndex]
-    ) {
-      return res.status(400).json({
+      if (
+        optionIndex === undefined ||
+        optionIndex < 0 ||
+        optionIndex > 2 ||
+        !appointment.rescheduleOptions[optionIndex]
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "The selected option is invalid.",
+          data: null,
+        });
+      }
+
+      // Check for booking conflict with the chosen time
+      const selectedOption = appointment.rescheduleOptions[optionIndex];
+      const selectedDate = new Date(selectedOption.date);
+      const selectedTimeSlot = selectedOption.timeSlot || "09:00";
+
+      const conflict = await hasBookingConflict(
+        appointment.doctorId,
+        selectedDate,
+        selectedTimeSlot,
+        appointment._id,
+      );
+      if (conflict) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "The selected time slot is no longer available. Please choose another time.",
+          data: null,
+        });
+      }
+
+      // Update appointment with chosen time
+      appointment.date = selectedDate;
+      appointment.timeSlot = selectedTimeSlot;
+
+      // Mark the chosen option
+      appointment.rescheduleOptions.forEach((opt) => (opt.chosen = false));
+      appointment.rescheduleOptions[optionIndex].chosen = true;
+
+      // Set to SCHEDULED (patient accepted reschedule options from doctor)
+      appointment.status = APPOINTMENT_STATUS.SCHEDULED;
+
+      await appointment.save();
+
+      // Auto-update timeline event for confirmed appointment
+      try {
+        await createTimelineEvent({
+          patientId: appointment.patientId,
+          doctorId: appointment.doctorId,
+          appointmentId: appointment._id,
+          eventType: "appointment_confirmed",
+          eventTitle: "Appointment Confirmed",
+          eventDescription: `Confirmed appointment for ${selectedDate.toLocaleDateString()} at ${selectedTimeSlot}`,
+          eventStatus: "scheduled",
+          visibility: "patient_visible",
+          metadata: {
+            date: selectedDate,
+            timeSlot: selectedTimeSlot,
+            optionIndex: optionIndex,
+          },
+        });
+      } catch (timelineError) {
+        logger.error(
+          "[chooseTime] Failed to create timeline event:",
+          timelineError.message,
+        );
+        // Don't fail the confirmation if timeline event fails
+      }
+
+      // Send WhatsApp notification to doctor and patient after patient confirms proposed time (Scenario 2)
+      try {
+        const patient = await Patient.findById(appointment.patientId);
+        const doctorFromDb = await Doctor.findById(appointment.doctorId);
+
+        const patientName = patient?.name || "المريض";
+        const doctorName = doctorFromDb?.name || "الدكتور";
+        const patientPhone = patient?.phoneNumber || "غير متوفر";
+        const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
+        const formattedDate = selectedDate.toLocaleDateString("ar-EG");
+
+        const doctorMessage = `تم تأكيد الموعد المقترح ✅. المريض ${patientName} قد اختار المؤكد بتاريخ ${formattedDate} الساعة ${selectedTimeSlot}. 📞 رقم المريض: ${patientPhone}.`;
+
+        const patientMessage = `مرحباً ${patientName}، تم تأكيد موعدك بنجاح ✅. موعدك القادم هو في ${formattedDate} الساعة ${selectedTimeSlot}. نتطلع لرؤيتك في العيادة!`;
+
+        const doctorNotification = createAndSendNotification({
+          recipientId: appointment.doctorId,
+          recipientType: "Doctor",
+          type: "appointment_confirmed",
+          title: "تأكيد موعد مقترح",
+          message: doctorMessage,
+          appointmentId: appointment._id,
+          doctorId: appointment.doctorId,
+          patientId: appointment.patientId,
+          actionUrl: `/doctor/appointments`,
+          metadata: {
+            patientName,
+            patientPhone,
+            date: selectedDate,
+            timeSlot: selectedTimeSlot,
+          },
+        });
+
+        const patientNotification = createAndSendNotification({
+          recipientId: appointment.patientId,
+          recipientType: "Patient",
+          type: "appointment_confirmed",
+          title: "تم تأكيد الموعد",
+          message: patientMessage,
+          appointmentId: appointment._id,
+          doctorId: appointment.doctorId,
+          patientId: appointment.patientId,
+          actionUrl: `/patient/appointments/${appointment._id}`,
+          metadata: {
+            doctorName,
+            doctorPhone,
+            date: selectedDate,
+            timeSlot: selectedTimeSlot,
+          },
+        });
+
+        await Promise.allSettled([doctorNotification, patientNotification]);
+      } catch (notificationError) {
+        logger.error(
+          "[chooseTime] Failed to send notifications:",
+          notificationError.message,
+        );
+        // Don't fail the confirmation if notification fails
+      }
+
+      return successResponse(
+        res,
+        appointment,
+        "Appointment time has been confirmed.",
+      );
+    } catch (error) {
+      logger.error("UnexpectedError", error);
+      res.status(500).json({
         success: false,
-        message: "The selected option is invalid.",
+        message: "An unexpected error occurred.",
         data: null,
       });
     }
-
-    // Check for booking conflict with the chosen time
-    const selectedOption = appointment.rescheduleOptions[optionIndex];
-    const selectedDate = new Date(selectedOption.date);
-    const selectedTimeSlot = selectedOption.timeSlot || "09:00";
-
-    const conflict = await hasBookingConflict(
-      appointment.doctorId,
-      selectedDate,
-      selectedTimeSlot,
-      appointment._id,
-    );
-    if (conflict) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "The selected time slot is no longer available. Please choose another time.",
-        data: null,
-      });
-    }
-
-    // Update appointment with chosen time
-    appointment.date = selectedDate;
-    appointment.timeSlot = selectedTimeSlot;
-
-    // Mark the chosen option
-    appointment.rescheduleOptions.forEach((opt) => (opt.chosen = false));
-    appointment.rescheduleOptions[optionIndex].chosen = true;
-
-    // Set to SCHEDULED (patient accepted reschedule options from doctor)
-    appointment.status = APPOINTMENT_STATUS.SCHEDULED;
-
-    await appointment.save();
-
-    // Auto-update timeline event for confirmed appointment
-    try {
-      await createTimelineEvent({
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-        appointmentId: appointment._id,
-        eventType: "appointment_confirmed",
-        eventTitle: "Appointment Confirmed",
-        eventDescription: `Confirmed appointment for ${selectedDate.toLocaleDateString()} at ${selectedTimeSlot}`,
-        eventStatus: "scheduled",
-        visibility: "patient_visible",
-        metadata: {
-          date: selectedDate,
-          timeSlot: selectedTimeSlot,
-          optionIndex: optionIndex,
-        },
-      });
-    } catch (timelineError) {
-      logger.error(
-        "[chooseTime] Failed to create timeline event:",
-        timelineError.message,
-      );
-      // Don't fail the confirmation if timeline event fails
-    }
-
-    // Send WhatsApp notification to doctor and patient after patient confirms proposed time (Scenario 2)
-    try {
-      const patient = await Patient.findById(appointment.patientId);
-      const doctorFromDb = await Doctor.findById(appointment.doctorId);
-
-      const patientName = patient?.name || "المريض";
-      const doctorName = doctorFromDb?.name || "الدكتور";
-      const patientPhone = patient?.phoneNumber || "غير متوفر";
-      const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
-      const formattedDate = selectedDate.toLocaleDateString("ar-EG");
-
-      const doctorMessage = `تم تأكيد الموعد المقترح ✅. المريض ${patientName} قد اختار المؤكد بتاريخ ${formattedDate} الساعة ${selectedTimeSlot}. 📞 رقم المريض: ${patientPhone}.`;
-
-      const patientMessage = `مرحباً ${patientName}، تم تأكيد موعدك بنجاح ✅. موعدك القادم هو في ${formattedDate} الساعة ${selectedTimeSlot}. نتطلع لرؤيتك في العيادة!`;
-
-      const doctorNotification = createAndSendNotification({
-        recipientId: appointment.doctorId,
-        recipientType: "Doctor",
-        type: "appointment_confirmed",
-        title: "تأكيد موعد مقترح",
-        message: doctorMessage,
-        appointmentId: appointment._id,
-        doctorId: appointment.doctorId,
-        patientId: appointment.patientId,
-        actionUrl: `/doctor/appointments`,
-        metadata: {
-          patientName,
-          patientPhone,
-          date: selectedDate,
-          timeSlot: selectedTimeSlot,
-        },
-      });
-
-      const patientNotification = createAndSendNotification({
-        recipientId: appointment.patientId,
-        recipientType: "Patient",
-        type: "appointment_confirmed",
-        title: "تم تأكيد الموعد",
-        message: patientMessage,
-        appointmentId: appointment._id,
-        doctorId: appointment.doctorId,
-        patientId: appointment.patientId,
-        actionUrl: `/patient/appointments/${appointment._id}`,
-        metadata: {
-          doctorName,
-          doctorPhone,
-          date: selectedDate,
-          timeSlot: selectedTimeSlot,
-        },
-      });
-
-      await Promise.allSettled([doctorNotification, patientNotification]);
-    } catch (notificationError) {
-      logger.error(
-        "[chooseTime] Failed to send notifications:",
-        notificationError.message,
-      );
-      // Don't fail the confirmation if notification fails
-    }
-
-    return successResponse(res, appointment, "Appointment time has been confirmed.");
-  } catch (error) {
-    logger.error("UnexpectedError", error);
-    res.status(500).json({
-      success: false,
-      message: "An unexpected error occurred.",
-      data: null,
-    });
-  }
+  },
 ];
 
 /**
@@ -726,198 +739,199 @@ export const cancelAppointment = [
 
       // Doctor/clinic-initiated cancellation (Scenario 3)
       if (req.doctor && req.doctor._id) {
-      if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
-        return res.status(403).json({
-          success: false,
-          message: "You are not authorized to cancel this appointment.",
-          data: null,
+        if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
+          return res.status(403).json({
+            success: false,
+            message: "You are not authorized to cancel this appointment.",
+            data: null,
+          });
+        }
+
+        appointment.status = APPOINTMENT_STATUS.CANCELLED;
+        appointment.cancelledBy = req.doctor._id;
+        appointment.cancelledByType = "Doctor";
+        appointment.rescheduleOptions = [];
+        await appointment.save();
+
+        try {
+          await createTimelineEvent({
+            patientId: appointment.patientId,
+            doctorId: appointment.doctorId,
+            appointmentId: appointment._id,
+            eventType: "appointment_cancelled",
+            eventTitle: "Appointment Cancelled",
+            eventDescription: "Doctor cancelled appointment",
+            eventStatus: "cancelled",
+            visibility: "patient_visible",
+            metadata: {
+              cancelledBy: "doctor",
+              date: appointment.date,
+              timeSlot: appointment.timeSlot,
+            },
+          });
+        } catch (timelineError) {
+          logger.error(
+            "[cancelAppointment] Failed to create timeline event:",
+            timelineError.message,
+          );
+          // Don't fail the cancellation if timeline event fails
+        }
+
+        try {
+          const patient = await Patient.findById(appointment.patientId);
+          const doctorFromDb = await Doctor.findById(appointment.doctorId);
+
+          const patientName = patient?.name || "المريض";
+          const doctorName = doctorFromDb?.name || "الدكتور";
+          const phone = patient?.phoneNumber || "غير متوفر";
+          const dateLabel = appointment.date.toLocaleDateString();
+
+          const patientMessage = `مرحباً ${patientName}، نأسف لإبلاغك أن موعدك القادم مع د. ${doctorName} تم إلغاؤه ⚠️. ⏰ تفاصيل الموعد المُلغى: ${dateLabel} الساعة ${appointment.timeSlot}. الرجاء التواصل مع العيادة أو تسجيل الدخول إلى حسابك لحجز موعد جديد.`;
+
+          await createAndSendNotification({
+            recipientId: appointment.patientId,
+            recipientType: "Patient",
+            type: "appointment_cancelled",
+            title: "تم إلغاء الموعد",
+            message: patientMessage,
+            appointmentId: appointment._id,
+            doctorId: appointment.doctorId,
+            patientId: appointment.patientId,
+            actionUrl: `/patient/appointments/${appointment._id}`,
+            metadata: {
+              doctorName,
+              patientName,
+              patientPhone: phone,
+              date: appointment.date,
+              timeSlot: appointment.timeSlot,
+            },
+          });
+        } catch (notificationError) {
+          logger.error(
+            "[cancelAppointment] Failed to send notification:",
+            notificationError.message,
+          );
+          // Don't fail cancellation if notification fails
+        }
+
+        return res.json({
+          success: true,
+          message: "Appointment has been cancelled.",
+          data: appointment,
         });
       }
 
-      appointment.status = APPOINTMENT_STATUS.CANCELLED;
-      appointment.cancelledBy = req.doctor._id;
-      appointment.cancelledByType = "Doctor";
-      appointment.rescheduleOptions = [];
-      await appointment.save();
+      // Patient-initiated cancellation
+      if (req.patientId) {
+        // Validate the appointment belongs to this patient
+        if (appointment.patientId.toString() !== req.patientId.toString()) {
+          return res.status(403).json({
+            success: false,
+            message: "You are not authorized to cancel this appointment.",
+            data: null,
+          });
+        }
 
-      try {
-        await createTimelineEvent({
-          patientId: appointment.patientId,
-          doctorId: appointment.doctorId,
-          appointmentId: appointment._id,
-          eventType: "appointment_cancelled",
-          eventTitle: "Appointment Cancelled",
-          eventDescription: "Doctor cancelled appointment",
-          eventStatus: "cancelled",
-          visibility: "patient_visible",
-          metadata: {
-            cancelledBy: "doctor",
-            date: appointment.date,
-            timeSlot: appointment.timeSlot,
-          },
+        // Enforce patient cancellation rules
+        // Patients cannot cancel confirmed or scheduled appointments (these are locked in)
+        const cannotCancelStatuses = [
+          APPOINTMENT_STATUS.CONFIRMED,
+          APPOINTMENT_STATUS.SCHEDULED,
+        ];
+        if (cannotCancelStatuses.includes(appointment.status)) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Cannot cancel a scheduled appointment. Please contact the clinic.",
+            data: null,
+          });
+        }
+
+        // Update status
+        appointment.status = APPOINTMENT_STATUS.CANCELLED;
+        appointment.cancelledBy = req.patientId;
+        appointment.cancelledByType = "Patient";
+        appointment.rescheduleOptions = [];
+
+        await appointment.save();
+
+        // Auto-create timeline event for cancelled appointment
+        try {
+          await createTimelineEvent({
+            patientId: appointment.patientId,
+            doctorId: appointment.doctorId,
+            appointmentId: appointment._id,
+            eventType: "appointment_cancelled",
+            eventTitle: "Appointment Cancelled",
+            eventDescription: "Patient cancelled appointment",
+            eventStatus: "cancelled",
+            visibility: "patient_visible",
+            metadata: {
+              cancelledBy: "patient",
+              date: appointment.date,
+              timeSlot: appointment.timeSlot,
+            },
+          });
+        } catch (timelineError) {
+          logger.error(
+            "[cancelAppointment] Failed to create timeline event:",
+            timelineError.message,
+          );
+          // Don't fail the cancellation if timeline event fails
+        }
+
+        // Send WhatsApp notification to doctor about cancellation
+        try {
+          const patient = await Patient.findById(appointment.patientId);
+          const patientName = patient?.name || "Patient";
+
+          await createAndSendNotification({
+            recipientId: appointment.doctorId, // Doctor
+            recipientType: "Doctor",
+            type: "appointment_cancelled",
+            title: "Appointment Cancelled by Patient",
+            message: `${patientName} has cancelled their appointment scheduled for ${appointment.date.toLocaleDateString()} at ${appointment.timeSlot}`,
+            appointmentId: appointment._id,
+            doctorId: appointment.doctorId,
+            patientId: appointment.patientId,
+            actionUrl: `/doctor/appointments`,
+            metadata: {
+              patientName,
+              date: appointment.date,
+              timeSlot: appointment.timeSlot,
+              cancelledBy: "patient",
+            },
+          });
+        } catch (notificationError) {
+          logger.error(
+            "[cancelAppointment] Failed to send notification:",
+            notificationError.message,
+          );
+          // Don't fail the cancellation if notification fails
+        }
+
+        return res.json({
+          success: true,
+          message: "Appointment has been cancelled.",
+          data: appointment,
         });
-      } catch (timelineError) {
-        logger.error(
-          "[cancelAppointment] Failed to create timeline event:",
-          timelineError.message,
-        );
-        // Don't fail the cancellation if timeline event fails
       }
 
-      try {
-        const patient = await Patient.findById(appointment.patientId);
-        const doctorFromDb = await Doctor.findById(appointment.doctorId);
-
-        const patientName = patient?.name || "المريض";
-        const doctorName = doctorFromDb?.name || "الدكتور";
-        const phone = patient?.phoneNumber || "غير متوفر";
-        const dateLabel = appointment.date.toLocaleDateString();
-
-        const patientMessage = `مرحباً ${patientName}، نأسف لإبلاغك أن موعدك القادم مع د. ${doctorName} تم إلغاؤه ⚠️. ⏰ تفاصيل الموعد المُلغى: ${dateLabel} الساعة ${appointment.timeSlot}. الرجاء التواصل مع العيادة أو تسجيل الدخول إلى حسابك لحجز موعد جديد.`;
-
-        await createAndSendNotification({
-          recipientId: appointment.patientId,
-          recipientType: "Patient",
-          type: "appointment_cancelled",
-          title: "تم إلغاء الموعد",
-          message: patientMessage,
-          appointmentId: appointment._id,
-          doctorId: appointment.doctorId,
-          patientId: appointment.patientId,
-          actionUrl: `/patient/appointments/${appointment._id}`,
-          metadata: {
-            doctorName,
-            patientName,
-            patientPhone: phone,
-            date: appointment.date,
-            timeSlot: appointment.timeSlot,
-          },
-        });
-      } catch (notificationError) {
-        logger.error(
-          "[cancelAppointment] Failed to send notification:",
-          notificationError.message,
-        );
-        // Don't fail cancellation if notification fails
-      }
-
-      return res.json({
-        success: true,
-        message: "Appointment has been cancelled.",
-        data: appointment,
+      // Fallback
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to perform this action.",
+        data: null,
+      });
+    } catch (error) {
+      logger.error("UnexpectedError", error);
+      res.status(500).json({
+        success: false,
+        message: "An unexpected error occurred.",
+        data: null,
       });
     }
-
-    // Patient-initiated cancellation
-    if (req.patientId) {
-      // Validate the appointment belongs to this patient
-      if (appointment.patientId.toString() !== req.patientId.toString()) {
-        return res.status(403).json({
-          success: false,
-          message: "You are not authorized to cancel this appointment.",
-          data: null,
-        });
-      }
-
-      // Enforce patient cancellation rules
-      // Patients cannot cancel confirmed or scheduled appointments (these are locked in)
-      const cannotCancelStatuses = [
-        APPOINTMENT_STATUS.CONFIRMED,
-        APPOINTMENT_STATUS.SCHEDULED,
-      ];
-      if (cannotCancelStatuses.includes(appointment.status)) {
-        return res.status(400).json({
-          success: false,
-          message:
-            "Cannot cancel a scheduled appointment. Please contact the clinic.",
-          data: null,
-        });
-      }
-
-      // Update status
-      appointment.status = APPOINTMENT_STATUS.CANCELLED;
-      appointment.cancelledBy = req.patientId;
-      appointment.cancelledByType = "Patient";
-      appointment.rescheduleOptions = [];
-
-      await appointment.save();
-
-      // Auto-create timeline event for cancelled appointment
-      try {
-        await createTimelineEvent({
-          patientId: appointment.patientId,
-          doctorId: appointment.doctorId,
-          appointmentId: appointment._id,
-          eventType: "appointment_cancelled",
-          eventTitle: "Appointment Cancelled",
-          eventDescription: "Patient cancelled appointment",
-          eventStatus: "cancelled",
-          visibility: "patient_visible",
-          metadata: {
-            cancelledBy: "patient",
-            date: appointment.date,
-            timeSlot: appointment.timeSlot,
-          },
-        });
-      } catch (timelineError) {
-        logger.error(
-          "[cancelAppointment] Failed to create timeline event:",
-          timelineError.message,
-        );
-        // Don't fail the cancellation if timeline event fails
-      }
-
-      // Send WhatsApp notification to doctor about cancellation
-      try {
-        const patient = await Patient.findById(appointment.patientId);
-        const patientName = patient?.name || "Patient";
-
-        await createAndSendNotification({
-          recipientId: appointment.doctorId, // Doctor
-          recipientType: "Doctor",
-          type: "appointment_cancelled",
-          title: "Appointment Cancelled by Patient",
-          message: `${patientName} has cancelled their appointment scheduled for ${appointment.date.toLocaleDateString()} at ${appointment.timeSlot}`,
-          appointmentId: appointment._id,
-          doctorId: appointment.doctorId,
-          patientId: appointment.patientId,
-          actionUrl: `/doctor/appointments`,
-          metadata: {
-            patientName,
-            date: appointment.date,
-            timeSlot: appointment.timeSlot,
-            cancelledBy: "patient",
-          },
-        });
-      } catch (notificationError) {
-        logger.error(
-          "[cancelAppointment] Failed to send notification:",
-          notificationError.message,
-        );
-        // Don't fail the cancellation if notification fails
-      }
-
-      return res.json({
-        success: true,
-        message: "Appointment has been cancelled.",
-        data: appointment,
-      });
-    }
-
-    // Fallback
-    return res.status(403).json({
-      success: false,
-      message: "Not authorized to perform this action.",
-      data: null,
-    });
-  } catch (error) {
-    logger.error("UnexpectedError", error);
-    res.status(500).json({
-      success: false,
-      message: "An unexpected error occurred.",
-      data: null,
-    });
-  }
+  },
 ];
 
 /**
