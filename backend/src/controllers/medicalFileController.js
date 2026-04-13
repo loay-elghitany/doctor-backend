@@ -652,22 +652,23 @@ export const softDeleteMedicalFile = [
 
       try {
         AuditLog.create({
-        actorType: isDoctor ? "Doctor" : "Patient",
-        actorId: user._id,
-        action: "medicalfile:deleted",
-        resourceType: "MedicalFile",
-        resourceId: record._id,
-        meta: { fileName: record.fileName },
-      });
-    } catch (auditErr) {
-      logger.error("softDeleteMedicalFile", "Audit failed", auditErr);
-    }
+          actorType: isDoctor ? "Doctor" : "Patient",
+          actorId: user._id,
+          action: "medicalfile:deleted",
+          resourceType: "MedicalFile",
+          resourceId: record._id,
+          meta: { fileName: record.fileName },
+        });
+      } catch (auditErr) {
+        logger.error("softDeleteMedicalFile", "Audit failed", auditErr);
+      }
 
-    res.json({ success: true, data: { id: record._id } });
-  } catch (err) {
-    logger.error("softDeleteMedicalFile", "Error deleting file", err);
-    res
-      .status(500)
-      .json({ success: false, message: "Failed to delete file", data: null });
-  }
+      res.json({ success: true, data: { id: record._id } });
+    } catch (err) {
+      logger.error("softDeleteMedicalFile", "Error deleting file", err);
+      res
+        .status(500)
+        .json({ success: false, message: "Failed to delete file", data: null });
+    }
+  },
 ];
