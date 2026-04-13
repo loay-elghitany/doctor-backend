@@ -28,7 +28,8 @@
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
-    "twilio": "^5.13.0"
+    "twilio": "^5.13.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@babel/core": "^7.24.0",
