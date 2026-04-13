@@ -317,7 +317,9 @@ export const getDoctorPrescriptions = async (req, res) => {
     });
 
     const { page, limit, skip } = getPaginationParams(req.query);
-    const totalItems = await Prescription.countDocuments({ doctorId: req.doctor._id });
+    const totalItems = await Prescription.countDocuments({
+      doctorId: req.doctor._id,
+    });
 
     const prescriptions = await Prescription.find({
       doctorId: req.doctor._id,
@@ -392,56 +394,57 @@ export const deletePrescription = [
 
       // Extra guard: ensure doctor's subscription is active (defense-in-depth)
       const doctor = await Doctor.findById(req.doctor._id);
-    if (!doctor || !doctor.isActive) {
-      // Log blocked delete attempt
-      try {
-        await auditService.logBlockedAction({
-          actorType: "Doctor",
-          actorId: req.doctor._id,
-          action: "delete_prescription_blocked_inactive_subscription",
-          resourceType: "Prescription",
-          resourceId: prescription._id,
-          reason: "inactive_subscription",
-          meta: { prescriptionId },
+      if (!doctor || !doctor.isActive) {
+        // Log blocked delete attempt
+        try {
+          await auditService.logBlockedAction({
+            actorType: "Doctor",
+            actorId: req.doctor._id,
+            action: "delete_prescription_blocked_inactive_subscription",
+            resourceType: "Prescription",
+            resourceId: prescription._id,
+            reason: "inactive_subscription",
+            meta: { prescriptionId },
+          });
+        } catch (e) {
+          logger.error("deletePrescription", "Audit logging failed", e);
+        }
+
+        return res.status(403).json({
+          success: false,
+          message: "Doctor subscription is inactive",
+          data: null,
         });
-      } catch (e) {
-        logger.error("deletePrescription", "Audit logging failed", e);
       }
 
-      return res.status(403).json({
+      // Delete prescription
+      await Prescription.deleteOne({ _id: prescriptionId });
+
+      auditService.logAction({
+        actorType: "Doctor",
+        actorId: req.doctor._id,
+        action: "delete_prescription",
+        resourceType: "Prescription",
+        resourceId: prescriptionId,
+        meta: { doctorId: req.doctor._id, prescriptionId },
+      });
+
+      logger.debug("deletePrescription", "Prescription deleted", {
+        prescriptionId,
+      });
+
+      res.json({
+        success: true,
+        message: "Prescription deleted successfully",
+        data: null,
+      });
+    } catch (error) {
+      logger.error("deletePrescription", "Unexpected error", error);
+      res.status(500).json({
         success: false,
-        message: "Doctor subscription is inactive",
+        message: "Server error deleting prescription",
         data: null,
       });
     }
-
-    // Delete prescription
-    await Prescription.deleteOne({ _id: prescriptionId });
-
-    auditService.logAction({
-      actorType: "Doctor",
-      actorId: req.doctor._id,
-      action: "delete_prescription",
-      resourceType: "Prescription",
-      resourceId: prescriptionId,
-      meta: { doctorId: req.doctor._id, prescriptionId },
-    });
-
-    logger.debug("deletePrescription", "Prescription deleted", {
-      prescriptionId,
-    });
-
-    res.json({
-      success: true,
-      message: "Prescription deleted successfully",
-      data: null,
-    });
-  } catch (error) {
-    logger.error("deletePrescription", "Unexpected error", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error deleting prescription",
-      data: null,
-    });
-  }
+  },
 ];
