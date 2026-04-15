@@ -4,6 +4,7 @@ import Secretary from "../models/Secretary.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
+import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 // Login المريض
