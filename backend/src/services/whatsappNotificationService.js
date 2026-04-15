@@ -5,7 +5,6 @@ import Doctor from "../models/Doctor.js";
 import auditService from "./auditService.js";
 import logger from "../utils/logger.js";
 
-
 /**
  * WhatsApp Notification Service
  * Handles sending WhatsApp messages via configured provider (Twilio or WhatsApp Cloud API)
@@ -59,23 +58,30 @@ class WhatsAppNotificationService {
     try {
       if (this.provider === "TWILIO") {
         if (!this.accountSid || !this.authToken || !this.fromPhoneNumber) {
-          logger.error(
+          logger.warn(
             "WhatsAppNotificationService",
-            "Missing Twilio configuration",
-            new Error(
-              "Missing TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_FROM_PHONE",
-            ),
+            "Twilio not configured, skipping notifications",
+            {
+              missing: [
+                !this.accountSid && "TWILIO_ACCOUNT_SID",
+                !this.authToken && "TWILIO_AUTH_TOKEN",
+                !this.fromPhoneNumber && "TWILIO_FROM_PHONE",
+              ].filter(Boolean),
+            },
           );
           return false;
         }
       } else if (this.provider === "WHATSAPP_CLOUD") {
         if (!this.whatsappCloudApiToken || !this.whatsappPhoneNumberId) {
-          logger.error(
+          logger.warn(
             "WhatsAppNotificationService",
-            "Missing WhatsApp Cloud configuration",
-            new Error(
-              "Missing WHATSAPP_CLOUD_API_TOKEN or WHATSAPP_PHONE_NUMBER_ID",
-            ),
+            "WhatsApp Cloud not configured, skipping notifications",
+            {
+              missing: [
+                !this.whatsappCloudApiToken && "WHATSAPP_CLOUD_API_TOKEN",
+                !this.whatsappPhoneNumberId && "WHATSAPP_PHONE_NUMBER_ID",
+              ].filter(Boolean),
+            },
           );
           return false;
         }
@@ -104,9 +110,13 @@ class WhatsAppNotificationService {
       return { success: false, reason: "Notifications disabled" };
     }
     if (!this.isConfigured) {
-      logger.debug("WhatsAppNotificationService", "Provider not configured", {
-        provider: this.provider,
-      });
+      logger.warn(
+        "WhatsAppNotificationService",
+        "Provider not configured, skipping notification",
+        {
+          provider: this.provider,
+        },
+      );
       return { success: false, reason: "WhatsApp provider not configured" };
     }
     try {
