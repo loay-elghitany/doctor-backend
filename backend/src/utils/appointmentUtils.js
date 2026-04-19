@@ -10,8 +10,8 @@ export const getStatusLabel = (status) => {
   switch (status) {
     case APPOINTMENT_STATUS.PENDING:
       return "Pending Confirmation";
-    case APPOINTMENT_STATUS.CONFIRMED:
-      return "Confirmed";
+    case "confirmed":
+      return "Scheduled";
     case APPOINTMENT_STATUS.SCHEDULED:
       return "Scheduled";
     case APPOINTMENT_STATUS.COMPLETED:
@@ -64,7 +64,7 @@ export const hasBookingConflict = async (
     status: {
       $in: [
         APPOINTMENT_STATUS.PENDING,
-        APPOINTMENT_STATUS.CONFIRMED,
+        "confirmed",
         APPOINTMENT_STATUS.SCHEDULED,
       ],
     },
@@ -107,20 +107,15 @@ export const validateStatusTransition = (currentStatus, newStatus) => {
     [APPOINTMENT_STATUS.PENDING]: [
       APPOINTMENT_STATUS.CANCELLED,
       APPOINTMENT_STATUS.RESCHEDULE_PROPOSED,
-      APPOINTMENT_STATUS.CONFIRMED,
       APPOINTMENT_STATUS.SCHEDULED,
       APPOINTMENT_STATUS.REJECTED,
     ],
-    [APPOINTMENT_STATUS.CONFIRMED]: [
-      APPOINTMENT_STATUS.CANCELLED,
-      APPOINTMENT_STATUS.COMPLETED,
-    ],
+    confirmed: [APPOINTMENT_STATUS.CANCELLED, APPOINTMENT_STATUS.COMPLETED],
     [APPOINTMENT_STATUS.SCHEDULED]: [
       APPOINTMENT_STATUS.CANCELLED,
       APPOINTMENT_STATUS.COMPLETED,
     ],
     [APPOINTMENT_STATUS.RESCHEDULE_PROPOSED]: [
-      APPOINTMENT_STATUS.CONFIRMED,
       APPOINTMENT_STATUS.SCHEDULED,
       APPOINTMENT_STATUS.CANCELLED,
     ],

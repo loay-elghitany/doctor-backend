@@ -11,10 +11,20 @@ export const successResponse = (
   });
 };
 
-export const errorResponse = (res, status, message, data = null) => {
-  return res.status(status).json({
+export const errorResponse = (
+  res,
+  status,
+  message,
+  data = null,
+  fieldErrors = null,
+) => {
+  const payload = {
     success: false,
     message,
     data,
-  });
+  };
+  if (fieldErrors) {
+    payload.fieldErrors = fieldErrors;
+  }
+  return res.status(status).json(payload);
 };

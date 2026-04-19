@@ -1,5 +1,7 @@
 import Doctor from "../models/Doctor.js";
+import Admin from "../models/Admin.js";
 import bcryptjs from "bcryptjs";
+import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import logger from "../utils/logger.js";
 
@@ -94,14 +96,14 @@ export const createDoctorAccount = async (req, res) => {
       Math.random().toString(36).slice(2, 12) +
         Math.random().toString(36).slice(2, 4).toUpperCase();
 
-    // Create doctor with hashed password
+    // Create doctor with hashed password and active status
     const doctor = await Doctor.create({
       name,
       email,
       phoneNumber,
       password: generatedPassword, // Will be hashed by pre-save hook
       clinicSlug: clinicSlug.toLowerCase(),
-      status: "active",
+      isActive: true,
     });
 
     logger.debug("[createDoctorAccount] Doctor account created", {
@@ -120,7 +122,7 @@ export const createDoctorAccount = async (req, res) => {
         name: doctor.name,
         email: doctor.email,
         clinicSlug: doctor.clinicSlug,
-        status: doctor.status,
+        status: doctor.isActive ? "active" : "inactive",
         // Only return generated password on creation, never on queries
         // Admin must securely share this with the doctor
         generatedPassword: customPassword ? undefined : generatedPassword,
@@ -310,14 +312,28 @@ export const listAllDoctors = async (req, res) => {
       .select("-password") // Never expose password hashes
       .sort({ createdAt: -1 });
 
+    const normalizedDoctors = doctors.map((doctor) => {
+      const obj = doctor.toObject();
+      const normalizedIsActive =
+        typeof obj.isActive === "boolean"
+          ? obj.isActive
+          : obj.status === "active";
+
+      return {
+        ...obj,
+        isActive: normalizedIsActive,
+        status: normalizedIsActive ? "active" : "inactive",
+      };
+    });
+
     res.json({
       success: true,
       message: "Doctors retrieved successfully",
       data: {
-        total: doctors.length,
-        active: doctors.filter((d) => d.isActive).length,
-        inactive: doctors.filter((d) => !d.isActive).length,
-        doctors,
+        total: normalizedDoctors.length,
+        active: normalizedDoctors.filter((d) => d.isActive).length,
+        inactive: normalizedDoctors.filter((d) => !d.isActive).length,
+        doctors: normalizedDoctors,
       },
     });
   } catch (error) {
@@ -441,6 +457,50 @@ export const deleteDoctorAccountPermanent = async (req, res) => {
       success: false,
       message: "Failed to delete doctor account",
       data: null,
+    });
+  }
+};
+
+export const adminLogin = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    const admin = await Admin.findOne({ email });
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    const isMatch = await bcryptjs.compare(password, admin.password);
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    const token = jwt.sign(
+      { id: admin._id, role: "admin" },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" },
+    );
+
+    res.json({
+      success: true,
+      token,
+      admin: {
+        id: admin._id,
+        email: admin.email,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
     });
   }
 };

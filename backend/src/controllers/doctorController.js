@@ -392,6 +392,7 @@ export const getPatientAppointmentsForDoctor = async (req, res) => {
         const appointmentQuery = {
           doctorId: doctorId,
           patientId: patientId,
+          isDeleted: { $ne: true },
         };
         logger.debug("getPatientAppointmentsForDoctor: appointment query", {
           role,

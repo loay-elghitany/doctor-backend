@@ -2,7 +2,6 @@ import mongoose from "mongoose";
 import bcryptjs from "bcryptjs";
 import logger from "../utils/logger.js";
 
-
 const doctorSchema = new mongoose.Schema(
   {
     name: {
@@ -44,12 +43,6 @@ const doctorSchema = new mongoose.Schema(
       type: String,
       enum: ["free", "basic", "pro"],
       default: "free",
-    },
-
-    status: {
-      type: String,
-      enum: ["active", "inactive"],
-      default: "active",
     },
 
     // Manual account management flags
@@ -117,6 +110,13 @@ doctorSchema.methods.matchPassword = async function (enteredPassword) {
     return false;
   }
 };
+
+doctorSchema.virtual("status").get(function () {
+  return this.isActive ? "active" : "inactive";
+});
+
+doctorSchema.set("toJSON", { virtuals: true });
+doctorSchema.set("toObject", { virtuals: true });
 
 const Doctor = mongoose.model("Doctor", doctorSchema);
 export default Doctor;

@@ -5,7 +5,9 @@ import { isPast, parseISO, isBefore } from "date-fns";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import logger from "../utils/logger.js";
+import { canPerformAction } from "../utils/appointmentPermissions.js";
 
+const MAX_RESCHEDULE_OPTIONS = 5;
 
 /**
  * Validate time slot format (HH:MM)
@@ -33,7 +35,7 @@ const hasBookingConflict = async (
     status: {
       $in: [
         APPOINTMENT_STATUS.PENDING,
-        APPOINTMENT_STATUS.CONFIRMED,
+        "confirmed",
         APPOINTMENT_STATUS.SCHEDULED,
       ],
     },
@@ -173,6 +175,11 @@ export const getDoctorAppointments = async (req, res) => {
       .populate("patientId", "name email")
       .sort({ date: 1 });
 
+    logger.debug("[getDoctorAppointments] filtering deleted", {
+      doctorId: req.doctor._id,
+      count: appointments.length,
+    });
+
     res.json({
       success: true,
       message: "Doctor appointments retrieved successfully.",
@@ -190,7 +197,7 @@ export const getDoctorAppointments = async (req, res) => {
 
 /**
  * Soft-delete a single appointment (doctor-initiated)
- * Only allowed for cancelled, completed, or expired appointments
+ * Only allowed for appointments where deletion is permitted by centralized rules
  */
 export const doctorDeleteAppointment = async (req, res) => {
   try {
@@ -216,20 +223,8 @@ export const doctorDeleteAppointment = async (req, res) => {
       });
     }
 
-    // Allowed delete states: cancelled, completed, expired (past date and not confirmed/scheduled)
-    const now = new Date();
-    const isExpired =
-      appointment.date &&
-      appointment.date < now &&
-      ![APPOINTMENT_STATUS.CONFIRMED, APPOINTMENT_STATUS.SCHEDULED].includes(
-        appointment.status,
-      );
-    const isCancelled = appointment.status === APPOINTMENT_STATUS.CANCELLED;
-    const isCompleted =
-      appointment.status === APPOINTMENT_STATUS.COMPLETED ||
-      appointment.status === "completed"; // keep backward-compatible if used elsewhere
-
-    if (!isCancelled && !isCompleted && !isExpired) {
+    // Check if deletion is allowed based on centralized permissions
+    if (!canPerformAction(appointment.status, "delete")) {
       return res.status(400).json({
         success: false,
         message: "Appointment cannot be deleted in its current state.",
@@ -249,7 +244,7 @@ export const doctorDeleteAppointment = async (req, res) => {
     res.json({
       success: true,
       message: "Appointment removed from dashboard.",
-      data: { id: appointment._id },
+      data: { id: appointment._id, isDeleted: true },
     });
   } catch (error) {
     logger.error("[doctorDeleteAppointment] error", error);
@@ -286,7 +281,7 @@ export const doctorBulkCleanupAppointments = async (req, res) => {
         {
           date: { $lt: now },
           status: {
-            $nin: [APPOINTMENT_STATUS.CONFIRMED, APPOINTMENT_STATUS.SCHEDULED],
+            $nin: ["confirmed", APPOINTMENT_STATUS.SCHEDULED],
           },
         },
       ],
@@ -343,8 +338,12 @@ export const updateAppointmentStatus = async (req, res) => {
       });
     }
 
-    // Validate the provided status
-    if (status && !Object.values(APPOINTMENT_STATUS).includes(status)) {
+    // Validate the provided status, allowing legacy 'confirmed' records for compatibility
+    if (
+      status &&
+      !Object.values(APPOINTMENT_STATUS).includes(status) &&
+      status !== "confirmed"
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid appointment status.",
@@ -390,7 +389,7 @@ export const updateAppointmentStatus = async (req, res) => {
       // Doctor accept must result in 'scheduled' (upcoming appointment), not 'completed'.
       // 'confirmed' is deprecated for acceptance; 'scheduled' is the correct pre-visit status.
       let finalStatus = status;
-      if (status === APPOINTMENT_STATUS.CONFIRMED) {
+      if (status === "confirmed") {
         finalStatus = APPOINTMENT_STATUS.SCHEDULED;
         logger.debug(
           "[updateAppointmentStatus] Converting legacy CONFIRMED to SCHEDULED",
@@ -512,17 +511,14 @@ export const updateAppointmentStatus = async (req, res) => {
     if (status) {
       try {
         const eventTypeMap = {
-          [APPOINTMENT_STATUS.CONFIRMED]: "appointment_approved",
           [APPOINTMENT_STATUS.SCHEDULED]: "appointment_approved",
           [APPOINTMENT_STATUS.PENDING]: "appointment_rescheduled",
           [APPOINTMENT_STATUS.RESCHEDULE_PROPOSED]: "appointment_rescheduled",
         };
 
         const eventType = eventTypeMap[status] || "appointment_updated";
-        const isConfirmedOrScheduled = [
-          APPOINTMENT_STATUS.CONFIRMED,
-          APPOINTMENT_STATUS.SCHEDULED,
-        ].includes(status);
+        const isConfirmedOrScheduled =
+          status === "confirmed" || status === APPOINTMENT_STATUS.SCHEDULED;
         const eventDescription = isConfirmedOrScheduled
           ? `Doctor confirmed appointment for ${appointment.date.toLocaleDateString()} at ${appointment.timeSlot}`
           : `Appointment status updated to ${status}`;
@@ -561,10 +557,8 @@ export const updateAppointmentStatus = async (req, res) => {
         let notificationTitle = "Appointment Status Updated";
         let notificationMessage = `Your appointment status has been updated to ${status}`;
 
-        const isConfirmedOrScheduled = [
-          APPOINTMENT_STATUS.CONFIRMED,
-          APPOINTMENT_STATUS.SCHEDULED,
-        ].includes(status);
+        const isConfirmedOrScheduled =
+          status === "confirmed" || status === APPOINTMENT_STATUS.SCHEDULED;
 
         if (isConfirmedOrScheduled) {
           notificationType = "appointment_confirmed";
@@ -620,7 +614,7 @@ export const updateAppointmentStatus = async (req, res) => {
 
 /**
  * Propose new times for an appointment (doctor-initiated rescheduling)
- * Doctor provides 3 alternative date/time options
+ * Doctor provides 1-5 alternative date/time options
  */
 export const proposeTimes = async (req, res) => {
   try {
@@ -647,21 +641,53 @@ export const proposeTimes = async (req, res) => {
       });
     }
 
-    // Defensive validation: rescheduleOptions must be array
+    // Defensive validation: rescheduleOptions must be an array with 1-5 options
     if (!Array.isArray(rescheduleOptions)) {
       return res.status(400).json({
         success: false,
-        message: "rescheduleOptions must be an array.",
+        message: "Validation error",
         data: null,
+        fieldErrors: {
+          rescheduleOptions: "rescheduleOptions must be an array.",
+        },
       });
     }
 
-    if (rescheduleOptions.length !== 3) {
+    if (rescheduleOptions.length < 1) {
       return res.status(400).json({
         success: false,
-        message: "You must provide exactly 3 time options.",
+        message: "Validation error",
         data: null,
+        fieldErrors: {
+          rescheduleOptions: "At least one time option is required",
+        },
       });
+    }
+
+    if (rescheduleOptions.length > MAX_RESCHEDULE_OPTIONS) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation error",
+        data: null,
+        fieldErrors: {
+          rescheduleOptions: `You can provide up to ${MAX_RESCHEDULE_OPTIONS} time options only`,
+        },
+      });
+    }
+
+    // Validate each option exists
+    for (const opt of rescheduleOptions) {
+      if (!opt || typeof opt !== "object" || !opt.date || !opt.timeSlot) {
+        return res.status(400).json({
+          success: false,
+          message: "Validation error",
+          data: null,
+          fieldErrors: {
+            rescheduleOptions:
+              "Each time option must include a valid date and timeSlot.",
+          },
+        });
+      }
     }
 
     // Validate all options have valid dates and timeSlots
@@ -671,16 +697,22 @@ export const proposeTimes = async (req, res) => {
       if (!option || typeof option !== "object") {
         return res.status(400).json({
           success: false,
-          message: "Each reschedule option must be a valid object.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions: "Each reschedule option must be a valid object.",
+          },
         });
       }
 
       if (!option.date) {
         return res.status(400).json({
           success: false,
-          message: "Each reschedule option must have a date.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions: "Each reschedule option must have a date.",
+          },
         });
       }
 
@@ -690,8 +722,11 @@ export const proposeTimes = async (req, res) => {
       } catch (err) {
         return res.status(400).json({
           success: false,
-          message: "Invalid date format. Use ISO 8601.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions: "Invalid date format. Use ISO 8601.",
+          },
         });
       }
 
@@ -699,8 +734,11 @@ export const proposeTimes = async (req, res) => {
       if (isPast(parsedDate)) {
         return res.status(400).json({
           success: false,
-          message: "Cannot propose reschedule options in the past.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions: "Cannot propose reschedule options in the past.",
+          },
         });
       }
 
@@ -708,8 +746,11 @@ export const proposeTimes = async (req, res) => {
       if (!option.timeSlot) {
         return res.status(400).json({
           success: false,
-          message: "Each reschedule option must have a timeSlot.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions: "Each reschedule option must have a timeSlot.",
+          },
         });
       }
 
@@ -717,8 +758,12 @@ export const proposeTimes = async (req, res) => {
       if (!isValidTimeSlot(option.timeSlot)) {
         return res.status(400).json({
           success: false,
-          message: "Invalid timeSlot format in reschedule options. Use HH:MM.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions:
+              "Invalid timeSlot format in reschedule options. Use HH:MM.",
+          },
         });
       }
 
@@ -858,7 +903,7 @@ export const proposeTimes = async (req, res) => {
 
 /**
  * Cancel an appointment (doctor-initiated)
- * Doctors can cancel at any time, regardless of appointment status
+ * Doctors can cancel appointments based on centralized permission rules
  */
 export const cancelAppointment = async (req, res) => {
   try {
@@ -885,6 +930,15 @@ export const cancelAppointment = async (req, res) => {
       });
     }
 
+    // Check if cancellation is allowed based on status
+    if (!canPerformAction(appointment.status, "cancel")) {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot cancel appointment with current status.",
+        data: null,
+      });
+    }
+
     // Prevent double cancellation
     if (appointment.status === APPOINTMENT_STATUS.CANCELLED) {
       return res.status(400).json({
@@ -894,7 +948,7 @@ export const cancelAppointment = async (req, res) => {
       });
     }
 
-    // Doctors can cancel at any time
+    // Update appointment status
     appointment.status = APPOINTMENT_STATUS.CANCELLED;
     appointment.cancelledBy = req.doctor._id;
     appointment.cancelledByType = "Doctor";
@@ -937,7 +991,7 @@ export const cancelAppointment = async (req, res) => {
       const dateLabel = appointment.date.toLocaleDateString("ar-EG");
 
       const isConfirmedOrScheduled = [
-        APPOINTMENT_STATUS.CONFIRMED,
+        "confirmed",
         APPOINTMENT_STATUS.SCHEDULED,
       ].includes(appointment.status);
 
@@ -1029,7 +1083,7 @@ export const markAppointmentCompleted = async (req, res) => {
     // Guard: Can only mark scheduled or confirmed appointments as completed
     const isScheduledOrConfirmed = [
       APPOINTMENT_STATUS.SCHEDULED,
-      APPOINTMENT_STATUS.CONFIRMED,
+      "confirmed",
     ].includes(appointment.status);
 
     if (!isScheduledOrConfirmed) {

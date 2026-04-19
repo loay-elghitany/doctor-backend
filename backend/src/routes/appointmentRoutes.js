@@ -55,7 +55,7 @@ router.get(
 /**
  * PATCH /api/appointments/:id/choose-time
  * Patient chooses one of the doctor's proposed reschedule times
- * Patient submits: { optionIndex: 0|1|2 }
+ * Patient submits: { optionIndex: number }
  * Middleware: universalAuth + requireRole(ROLES.PATIENT), tenantScope (sets patientId, tenantId)
  * Returns: 200 with updated appointment or 409 if slot no longer available
  */

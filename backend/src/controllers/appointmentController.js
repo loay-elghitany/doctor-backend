@@ -10,6 +10,7 @@ import enforceOwnership from "../middleware/enforceOwnership.js";
 import logger from "../utils/logger.js";
 import { errorResponse, successResponse } from "../utils/responseHelpers.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
+import { canPerformAction } from "../utils/appointmentPermissions.js";
 
 /**
  * Validate time slot format (HH:MM)
@@ -38,7 +39,7 @@ const hasBookingConflict = async (
     status: {
       $in: [
         APPOINTMENT_STATUS.PENDING,
-        APPOINTMENT_STATUS.CONFIRMED,
+        "confirmed",
         APPOINTMENT_STATUS.SCHEDULED,
       ],
     },
@@ -412,12 +413,12 @@ export const getUnifiedAppointments = async (req, res) => {
 
     const roleStrategies = {
       doctor: () => {
-        const query = { doctorId: req.tenantId };
+        const query = { doctorId: req.tenantId, isDeleted: { $ne: true } };
         logger.debug("getUnifiedAppointments: DOCTOR query", { query });
         return { query };
       },
       secretary: () => {
-        const query = { doctorId: req.tenantId };
+        const query = { doctorId: req.tenantId, isDeleted: { $ne: true } };
         logger.debug("getUnifiedAppointments: SECRETARY query", {
           query,
           tenantId: req.tenantId,
@@ -429,6 +430,7 @@ export const getUnifiedAppointments = async (req, res) => {
           patientId: actualUserId,
           hiddenByPatient: { $ne: true },
           doctorId: req.tenantId,
+          isDeleted: { $ne: true },
         };
         logger.debug("getUnifiedAppointments: PATIENT query", { query });
         return { query };
@@ -459,6 +461,13 @@ export const getUnifiedAppointments = async (req, res) => {
       .sort({ date: 1 })
       .skip(skip)
       .limit(limit);
+
+    logger.debug("[getUnifiedAppointments] query results", {
+      role,
+      query: strategy.query,
+      count: appointments.length,
+      totalItems,
+    });
 
     const normalizedAppointments = appointments.map((appointmentDoc) => {
       const appointment =
@@ -523,7 +532,7 @@ export const getUnifiedAppointments = async (req, res) => {
 
 /**
  * Patient chooses one of the doctor's proposed reschedule times
- * Body: { optionIndex: 0|1|2 }
+ * Body: { optionIndex: number }
  */
 export const chooseTime = [
   enforceOwnership(async (req) => {
@@ -569,21 +578,28 @@ export const chooseTime = [
         );
       }
 
+      const currentOptions = Array.isArray(appointment.rescheduleOptions)
+        ? appointment.rescheduleOptions
+        : [];
       if (
         optionIndex === undefined ||
         optionIndex < 0 ||
-        optionIndex > 2 ||
-        !appointment.rescheduleOptions[optionIndex]
+        optionIndex >= currentOptions.length ||
+        !currentOptions[optionIndex]
       ) {
         return res.status(400).json({
           success: false,
-          message: "The selected option is invalid.",
+          message: "Validation error",
           data: null,
+          fieldErrors: {
+            rescheduleOptions:
+              "Selected appointment time option is invalid or no longer available.",
+          },
         });
       }
 
       // Check for booking conflict with the chosen time
-      const selectedOption = appointment.rescheduleOptions[optionIndex];
+      const selectedOption = currentOptions[optionIndex];
       const selectedDate = new Date(selectedOption.date);
       const selectedTimeSlot = selectedOption.timeSlot || "09:00";
 
@@ -747,6 +763,15 @@ export const cancelAppointment = [
           });
         }
 
+        // Check if cancellation is allowed based on centralized permissions
+        if (!canPerformAction(appointment.status, "cancel")) {
+          return res.status(400).json({
+            success: false,
+            message: "Cannot cancel appointment with current status.",
+            data: null,
+          });
+        }
+
         appointment.status = APPOINTMENT_STATUS.CANCELLED;
         appointment.cancelledBy = req.doctor._id;
         appointment.cancelledByType = "Doctor";
@@ -835,7 +860,7 @@ export const cancelAppointment = [
         // Enforce patient cancellation rules
         // Patients cannot cancel confirmed or scheduled appointments (these are locked in)
         const cannotCancelStatuses = [
-          APPOINTMENT_STATUS.CONFIRMED,
+          "confirmed",
           APPOINTMENT_STATUS.SCHEDULED,
         ];
         if (cannotCancelStatuses.includes(appointment.status)) {

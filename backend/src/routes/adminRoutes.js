@@ -7,6 +7,7 @@ import {
   listAllDoctors,
   getDoctorInfo,
   deleteDoctorAccountPermanent,
+  adminLogin,
 } from "../controllers/adminController.js";
 
 const router = express.Router();
@@ -18,6 +19,12 @@ const router = express.Router();
  * Authentication: Pass ADMIN_SECRET_TOKEN in Authorization header
  * Example: Authorization: Bearer your_admin_secret_token_here
  */
+
+/**
+ * POST /api/admin/login
+ * Admin login endpoint
+ */
+router.post("/login", adminLogin);
 
 /**
  * POST /api/admin/create-doctor

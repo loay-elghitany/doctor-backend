@@ -1,6 +1,8 @@
 import mongoose from "mongoose";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 
+const MAX_RESCHEDULE_OPTIONS = 5;
+
 const appointmentSchema = new mongoose.Schema(
   {
     doctorId: {
@@ -167,22 +169,28 @@ appointmentSchema.pre("save", async function () {
     );
   }
 
-  // Rule: If status is 'reschedule_proposed', there must be 3 options
-  if (
-    this.status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED &&
-    (!this.rescheduleOptions || this.rescheduleOptions.length !== 3)
-  ) {
-    throw new Error(
-      "A 'reschedule_proposed' appointment must have exactly 3 reschedule options.",
-    );
+  // Rule: If status is 'reschedule_proposed', there must be 1-5 reschedule options
+  if (this.status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
+    const optionCount = Array.isArray(this.rescheduleOptions)
+      ? this.rescheduleOptions.length
+      : 0;
+    if (optionCount < 1 || optionCount > MAX_RESCHEDULE_OPTIONS) {
+      const validationError = new mongoose.Error.ValidationError(this);
+      validationError.addError(
+        "rescheduleOptions",
+        new mongoose.Error.ValidatorError({
+          path: "rescheduleOptions",
+          message: `A 'reschedule_proposed' appointment must contain between 1 and ${MAX_RESCHEDULE_OPTIONS} reschedule options.`,
+        }),
+      );
+      throw validationError;
+    }
   }
 
   // Rule: If status is 'confirmed' or 'scheduled' and rescheduleOptions exist, exactly one must be chosen
   // (No rescheduleOptions means patient already chose the time - direct accept workflow)
-  const isConfirmedOrScheduled = [
-    APPOINTMENT_STATUS.CONFIRMED,
-    APPOINTMENT_STATUS.SCHEDULED,
-  ].includes(this.status);
+  const isConfirmedOrScheduled =
+    this.status === "confirmed" || this.status === APPOINTMENT_STATUS.SCHEDULED;
   if (isConfirmedOrScheduled) {
     if (this.rescheduleOptions && this.rescheduleOptions.length > 0) {
       const chosenCount = this.rescheduleOptions.filter(
@@ -212,7 +220,7 @@ appointmentSchema.post("save", async function () {
       status: {
         $in: [
           APPOINTMENT_STATUS.PENDING,
-          APPOINTMENT_STATUS.CONFIRMED,
+          "confirmed",
           APPOINTMENT_STATUS.SCHEDULED,
         ],
       },

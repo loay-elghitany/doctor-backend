@@ -3,7 +3,6 @@ import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 import { getStatusLabel } from "../utils/appointmentUtils.js";
 import logger from "../utils/logger.js";
 
-
 // Get upcoming appointments for a patient
 export const getUpcomingAppointments = async (req, res) => {
   try {
@@ -23,6 +22,7 @@ export const getUpcomingAppointments = async (req, res) => {
       patientId: req.patientId,
       date: { $gte: new Date() },
       hiddenByPatient: { $ne: true }, // Exclude appointments patient has hidden
+      isDeleted: { $ne: true },
     })
       .populate("doctorId", "name") // Include doctor info for cancelled appointments
       .sort({ date: 1 })
@@ -62,6 +62,7 @@ export const getGroupedAppointments = async (req, res) => {
 
     const appointments = await Appointment.find({
       doctorId: req.doctor._id,
+      isDeleted: { $ne: true },
     })
       .populate("patientId", "name")
       .sort({ date: 1 });

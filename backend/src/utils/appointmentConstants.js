@@ -1,7 +1,5 @@
 export const APPOINTMENT_STATUS = {
   PENDING: "pending",
-  // DEPRECATED: Use SCHEDULED instead. CONFIRMED kept for backward compatibility only.
-  CONFIRMED: "confirmed",
   SCHEDULED: "scheduled",
   COMPLETED: "completed",
   CANCELLED: "cancelled",
