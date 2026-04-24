@@ -1,6 +1,63 @@
 import Doctor from "../models/Doctor.js";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
+import { extractClinicSlugFromHost } from "../utils/tenantResolver.js";
+
+const isValidHttpUrl = (value) => {
+  if (!value) return true;
+  try {
+    const url = new URL(String(value));
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
+};
+
+const sanitizeUrl = (value) => {
+  if (value === undefined || value === null) return "";
+  return String(value).trim();
+};
+
+const validateClinicProfileUrls = ({
+  profilePicture,
+  coverImage,
+  clinicPhotos,
+  socialLinks,
+} = {}) => {
+  if (profilePicture !== undefined && !isValidHttpUrl(profilePicture)) {
+    return "Invalid profile picture URL";
+  }
+
+  if (coverImage !== undefined && !isValidHttpUrl(coverImage)) {
+    return "Invalid cover image URL";
+  }
+
+  if (clinicPhotos !== undefined) {
+    if (!Array.isArray(clinicPhotos)) {
+      return "Clinic photos must be an array of URLs";
+    }
+    const hasInvalidPhotoUrl = clinicPhotos.some((url) => !isValidHttpUrl(url));
+    if (hasInvalidPhotoUrl) {
+      return "One or more clinic photo URLs are invalid";
+    }
+  }
+
+  if (socialLinks && typeof socialLinks === "object") {
+    const socialUrlValues = [
+      socialLinks.facebook,
+      socialLinks.instagram,
+      socialLinks.twitter,
+    ];
+    const hasInvalidSocialUrl = socialUrlValues.some(
+      (url) => !isValidHttpUrl(url),
+    );
+    if (hasInvalidSocialUrl) {
+      return "One or more social links are invalid";
+    }
+  }
+
+  return null;
+};
 
 // إنشاء دكتور جديد
 
@@ -214,6 +271,20 @@ export const getDoctorProfile = async (req, res) => {
         clinicSlug: doctor.clinicSlug,
         plan: doctor.plan,
         status: doctor.status,
+        bio: doctor.bio || "",
+        specialty: doctor.specialty || "",
+        profilePicture: doctor.profilePicture || "",
+        coverImage: doctor.coverImage || "",
+        clinicPhotos: doctor.clinicPhotos || [],
+        socialLinks: doctor.socialLinks || {
+          facebook: "",
+          instagram: "",
+          twitter: "",
+        },
+        landingPageSettings: doctor.landingPageSettings || {
+          themeColor: "#2563eb",
+          welcomeMessage: "",
+        },
       },
     });
 
@@ -221,6 +292,181 @@ export const getDoctorProfile = async (req, res) => {
   } catch (error) {
     logger.error("getDoctorProfile", "Unexpected error", error);
     res.status(500).json({
+      success: false,
+      message: "Server error",
+      data: null,
+    });
+  }
+};
+
+export const updateDoctorClinicProfile = async (req, res) => {
+  try {
+    const doctorId = req.doctor?._id;
+    if (!doctorId) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authorized",
+        data: null,
+      });
+    }
+
+    const {
+      bio,
+      specialty,
+      profilePicture,
+      coverImage,
+      clinicPhotos,
+      socialLinks,
+      landingPageSettings,
+    } = req.body || {};
+
+    const urlValidationError = validateClinicProfileUrls({
+      profilePicture,
+      coverImage,
+      clinicPhotos,
+      socialLinks,
+    });
+    if (urlValidationError) {
+      return res.status(400).json({
+        success: false,
+        message: urlValidationError,
+        data: null,
+      });
+    }
+
+    const doctor = await Doctor.findById(doctorId);
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor not found",
+        data: null,
+      });
+    }
+
+    if (bio !== undefined) doctor.bio = bio || "";
+    if (specialty !== undefined) doctor.specialty = specialty || "";
+    if (profilePicture !== undefined) {
+      doctor.profilePicture = sanitizeUrl(profilePicture);
+    }
+    if (coverImage !== undefined) {
+      doctor.coverImage = sanitizeUrl(coverImage);
+    }
+    if (Array.isArray(clinicPhotos)) {
+      doctor.clinicPhotos = clinicPhotos
+        .map((url) => sanitizeUrl(url))
+        .filter(Boolean);
+    }
+
+    if (socialLinks && typeof socialLinks === "object") {
+      doctor.socialLinks = {
+        facebook: sanitizeUrl(socialLinks.facebook),
+        instagram: sanitizeUrl(socialLinks.instagram),
+        twitter: sanitizeUrl(socialLinks.twitter),
+      };
+    }
+
+    if (landingPageSettings && typeof landingPageSettings === "object") {
+      doctor.landingPageSettings = {
+        themeColor: landingPageSettings.themeColor || "#2563eb",
+        welcomeMessage: landingPageSettings.welcomeMessage || "",
+      };
+    }
+
+    await doctor.save();
+
+    return res.json({
+      success: true,
+      message: "Clinic profile updated successfully",
+      data: {
+        id: doctor._id,
+        clinicSlug: doctor.clinicSlug,
+        bio: doctor.bio || "",
+        specialty: doctor.specialty || "",
+        profilePicture: doctor.profilePicture || "",
+        coverImage: doctor.coverImage || "",
+        clinicPhotos: doctor.clinicPhotos || [],
+        socialLinks: doctor.socialLinks || {
+          facebook: "",
+          instagram: "",
+          twitter: "",
+        },
+        landingPageSettings: doctor.landingPageSettings || {
+          themeColor: "#2563eb",
+          welcomeMessage: "",
+        },
+      },
+    });
+  } catch (error) {
+    logger.error("updateDoctorClinicProfile", "Unexpected error", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      data: null,
+    });
+  }
+};
+
+export const getDoctorPublicProfile = async (req, res) => {
+  try {
+    const hostSlug = extractClinicSlugFromHost(req.headers.host);
+    const fallbackSlug =
+      req.query?.clinicSlug || req.params?.clinicSlug || req.body?.clinicSlug;
+    const clinicSlug = String(hostSlug || fallbackSlug || "")
+      .trim()
+      .toLowerCase();
+
+    if (!clinicSlug) {
+      return res.status(400).json({
+        success: false,
+        message: "Clinic slug is required",
+        data: null,
+      });
+    }
+
+    const doctor = await Doctor.findOne({
+      clinicSlug,
+      isActive: true,
+    }).select(
+      "name clinicSlug bio specialty profilePicture coverImage clinicPhotos socialLinks landingPageSettings",
+    );
+
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Clinic not found",
+        data: null,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Public clinic profile retrieved",
+      data: {
+        name: doctor.name,
+        clinicSlug: doctor.clinicSlug,
+        bio: doctor.bio || "",
+        specialty: doctor.specialty || "",
+        profilePicture: doctor.profilePicture || "",
+        coverImage: doctor.coverImage || "",
+        clinicPhotos: doctor.clinicPhotos || [],
+        socialLinks: doctor.socialLinks || {
+          facebook: "",
+          instagram: "",
+          twitter: "",
+        },
+        landingPageSettings: doctor.landingPageSettings || {
+          themeColor: "#2563eb",
+          welcomeMessage: "",
+        },
+        clinicInfo: {
+          clinicSlug: doctor.clinicSlug,
+          doctorName: doctor.name,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error("getDoctorPublicProfile", "Unexpected error", error);
+    return res.status(500).json({
       success: false,
       message: "Server error",
       data: null,

@@ -24,6 +24,7 @@ import notificationPreferencesRoutes from "./routes/notificationPreferencesRoute
 import adminAnalyticsRoutes from "./routes/adminAnalyticsRoutes.js";
 import communicationRoutes from "./routes/communicationRoutes.js";
 import secretaryRoutes from "./routes/secretaryRoutes.js";
+import financialRoutes from "./routes/financialRoutes.js";
 import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFoundHandler from "./middleware/notFoundHandler.js";
 
@@ -43,6 +44,25 @@ const corsOptions = {
     if (!origin) {
       callback(null, true);
       return;
+    }
+
+    const dynamicRootDomain = (process.env.MAIN_DOMAIN || "")
+      .trim()
+      .toLowerCase();
+    if (dynamicRootDomain) {
+      try {
+        const parsedOrigin = new URL(origin);
+        const hostName = parsedOrigin.hostname.toLowerCase();
+        if (
+          hostName === dynamicRootDomain ||
+          hostName.endsWith(`.${dynamicRootDomain}`)
+        ) {
+          callback(null, true);
+          return;
+        }
+      } catch (_error) {
+        // Keep fallback checks for invalid origin shape.
+      }
     }
 
     if (allowedOrigins.length === 0) {
@@ -102,6 +122,7 @@ app.use("/api/secretaries", secretaryRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/notification-preferences", notificationPreferencesRoutes);
 app.use("/api/communication", communicationRoutes);
+app.use("/api/financials", financialRoutes);
 
 app.get("/", (req, res) => {
   res.send("Clinic SaaS API running");

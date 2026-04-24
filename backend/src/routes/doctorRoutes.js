@@ -5,6 +5,8 @@ import {
   getDoctorProfile,
   getDoctorPatients,
   getPatientAppointmentsForDoctor,
+  getDoctorPublicProfile,
+  updateDoctorClinicProfile,
 } from "../controllers/doctorController.js";
 import Doctor from "../models/Doctor.js";
 import { universalAuth } from "../middleware/universalAuth.js";
@@ -25,9 +27,16 @@ router.get("/", async (req, res) => {
 });
 
 router.post("/login", loginDoctor);
+router.get("/public-profile", getDoctorPublicProfile);
 
 // Get doctor profile (protected)
 router.get("/me", universalAuth, requireRole(ROLES.DOCTOR), getDoctorProfile);
+router.put(
+  "/clinic-profile",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  updateDoctorClinicProfile,
+);
 
 // Get all patients for the logged-in doctor or secretary (protected)
 router.get(

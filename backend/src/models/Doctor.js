@@ -2,6 +2,16 @@ import mongoose from "mongoose";
 import bcryptjs from "bcryptjs";
 import logger from "../utils/logger.js";
 
+const isValidHttpUrl = (value) => {
+  if (!value) return true;
+  try {
+    const parsed = new URL(String(value).trim());
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
+};
+
 const doctorSchema = new mongoose.Schema(
   {
     name: {
@@ -37,6 +47,97 @@ const doctorSchema = new mongoose.Schema(
       required: true,
       unique: true,
       lowercase: true,
+    },
+
+    bio: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    specialty: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
+    profilePicture: {
+      type: String,
+      default: "",
+      trim: true,
+      validate: {
+        validator: isValidHttpUrl,
+        message: "profilePicture must be a valid HTTP/HTTPS URL",
+      },
+    },
+
+    coverImage: {
+      type: String,
+      default: "",
+      trim: true,
+      validate: {
+        validator: isValidHttpUrl,
+        message: "coverImage must be a valid HTTP/HTTPS URL",
+      },
+    },
+
+    coverImage: {
+      type: String,
+      default: "",
+      trim: true,
+      validate: {
+        validator: isValidHttpUrl,
+        message: "coverImage must be a valid HTTP/HTTPS URL",
+      },
+    },
+
+    clinicPhotos: {
+      type: [
+        {
+          type: String,
+          trim: true,
+          validate: {
+            validator: isValidHttpUrl,
+            message: "clinicPhotos contains an invalid HTTP/HTTPS URL",
+          },
+        },
+      ],
+      default: [],
+    },
+
+    socialLinks: {
+      facebook: {
+        type: String,
+        default: "",
+        trim: true,
+        validate: {
+          validator: isValidHttpUrl,
+          message: "socialLinks.facebook must be a valid HTTP/HTTPS URL",
+        },
+      },
+      instagram: {
+        type: String,
+        default: "",
+        trim: true,
+        validate: {
+          validator: isValidHttpUrl,
+          message: "socialLinks.instagram must be a valid HTTP/HTTPS URL",
+        },
+      },
+      twitter: {
+        type: String,
+        default: "",
+        trim: true,
+        validate: {
+          validator: isValidHttpUrl,
+          message: "socialLinks.twitter must be a valid HTTP/HTTPS URL",
+        },
+      },
+    },
+
+    landingPageSettings: {
+      themeColor: { type: String, default: "#2563eb", trim: true },
+      welcomeMessage: { type: String, default: "", trim: true },
     },
 
     plan: {

@@ -50,6 +50,7 @@ export const loginPatient = async (req, res) => {
           id: patient._id,
           name: patient.name,
           email: patient.email,
+          clinicSlug: patient.clinicSlug,
         },
       },
     });

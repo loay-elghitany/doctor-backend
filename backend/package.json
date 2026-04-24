@@ -11,7 +11,10 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watchAll",
     "seed": "node src/seedTestData.js",
     "seed:doctor": "node src/seedDoctor.js",
-    "test:migrate": "node src/migrations/test_migrate_timeSlot_integration.js"
+    "test:migrate": "node src/migrations/test_migrate_timeSlot_integration.js",
+    "migrate": "node src/migrations/migrate_timeSlot_integration.js",
+    "migrate:doctor-profile-defaults": "node src/migrations/migrate_doctor_profile_defaults.js",
+    "seedAdmin": "node src/seedAdmin.js"
   },
   "keywords": [],
   "author": "",

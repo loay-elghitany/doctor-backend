@@ -115,6 +115,9 @@ export const loginSecretary = async (req, res) => {
       secretary.doctorId,
     );
 
+    // Get clinicSlug from the associated doctor
+    const doctor = await Doctor.findById(secretary.doctorId).select("clinicSlug");
+
     res.json({
       success: true,
       message: "Login successful",
@@ -125,6 +128,7 @@ export const loginSecretary = async (req, res) => {
           name: secretary.name,
           email: secretary.email,
           doctorId: secretary.doctorId,
+          clinicSlug: doctor?.clinicSlug || null,
         },
       },
     });

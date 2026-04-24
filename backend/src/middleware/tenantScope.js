@@ -1,5 +1,6 @@
-import Patient from "../models/Patient.js";
+import Doctor from "../models/Doctor.js";
 import logger from "../utils/logger.js";
+import { extractClinicSlugFromHost } from "../utils/tenantResolver.js";
 
 
 
@@ -46,13 +47,41 @@ export const tenantScope = async (req, res, next) => {
       return next();
     }
 
-    // Strategy 2: Use the authenticated user's explicit doctorId.
+    // Strategy 2: Resolve clinic from subdomain host.
+    const hostClinicSlug = extractClinicSlugFromHost(req.headers.host);
+    if (hostClinicSlug) {
+      const doctorBySubdomain = await Doctor.findOne({
+        clinicSlug: hostClinicSlug,
+      }).select("_id clinicSlug");
+
+      if (doctorBySubdomain) {
+        req.tenantId = doctorBySubdomain._id;
+        req.clinicSlug = doctorBySubdomain.clinicSlug;
+        return next();
+      }
+    }
+
+    // Strategy 3: Backward-compatible slug-based resolution.
+    const fallbackClinicSlug =
+      req.params?.clinicSlug || req.query?.clinicSlug || req.body?.clinicSlug;
+    if (fallbackClinicSlug) {
+      const doctorBySlug = await Doctor.findOne({
+        clinicSlug: String(fallbackClinicSlug).toLowerCase(),
+      }).select("_id clinicSlug");
+      if (doctorBySlug) {
+        req.tenantId = doctorBySlug._id;
+        req.clinicSlug = doctorBySlug.clinicSlug;
+        return next();
+      }
+    }
+
+    // Strategy 4: Use authenticated user's explicit doctorId.
     if (req.user.doctorId) {
       req.tenantId = req.user.doctorId;
       return next();
     }
 
-    // Strategy 4: No doctor found - reject
+    // Strategy 5: No doctor found - reject
     return res.status(400).json({
       success: false,
       message:
