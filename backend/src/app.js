@@ -33,130 +33,61 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
 const isProduction = process.env.NODE_ENV === "production";
-
-// Explicit allowed origins list
-const explicitAllowedOrigins = [
-  "https://mydoc90.com",
-  "https://www.mydoc90.com",
-  "https://api.mydoc90.com",
-  ...(process.env.CORS_ALLOWED_ORIGINS
-    ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
-    : []),
-];
+const MAIN_DOMAIN = "mydoc90.com";
 
 // ============================================
-// CORS CONFIGURATION - Forensic Audit Fix
+// CORS CONFIGURATION - Production Hardened
 // ============================================
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // DEBUG: Log every CORS check to Render logs
-    console.log(`[CORS Debug] Checking origin: ${origin || "NULL/UNDEFINED"}`);
-    console.log(`[CORS Debug] NODE_ENV: ${process.env.NODE_ENV}`);
-    console.log(`[CORS Debug] Request headers:`, JSON.stringify({
-      host: "???", // Will be logged per request below
-    }));
-
-    // CRITICAL FIX: Never return true (which sends wildcard *)
-    // Instead, derive origin from request headers when missing
-    let effectiveOrigin = origin;
-
-    if (!effectiveOrigin) {
-      // Try to get origin from Referer or X-Forwarded-Host headers
-      // This prevents the wildcard * issue with proxies
-      console.warn(`[CORS Warning] Origin is null/undefined. This usually means a proxy is stripping the Origin header.`);
-      console.warn(`[CORS Warning] Returning 403 to prevent wildcard * leakage.`);
-
-      // Reject requests without origin in production (prevents wildcard)
-      if (isProduction) {
-        return callback(new Error("CORS: Origin header required in production"), false);
-      }
-
-      // In development, allow but log warning
-      console.warn(`[CORS Dev] Allowing request without origin header`);
-      return callback(null, "http://localhost:5173"); // Return explicit origin, not true
+    // 1. If Origin is missing (Render Proxy issue), fallback to main domain
+    // instead of returning 'true' (which leaks wildcard *)
+    if (!origin) {
+      console.log("[CORS] Origin missing, allowing main domain fallback");
+      return callback(null, `https://${MAIN_DOMAIN}`);
     }
 
     try {
-      const parsedOrigin = new URL(effectiveOrigin);
-      const host = parsedOrigin.hostname.toLowerCase();
+      const hostName = new URL(origin).hostname.toLowerCase();
 
-      console.log(`[CORS Debug] Parsed hostname: ${host}`);
+      // 2. Allow our main domain and ANY subdomain (loay.mydoc90.com, etc.)
+      const isMydoc90 = hostName === MAIN_DOMAIN || hostName.endsWith("." + MAIN_DOMAIN);
+      const isLocal = hostName === "localhost" || hostName === "127.0.0.1";
 
-      // Check 1: mydoc90.com domain and subdomains
-      const isMydocDomain = host === "mydoc90.com" || host.endsWith(".mydoc90.com");
-
-      // Check 2: Dynamic domain from env
-      const dynamicDomain = (process.env.MAIN_DOMAIN || "").trim().toLowerCase();
-      const isDynamicDomain = dynamicDomain && (host === dynamicDomain || host.endsWith(`.${dynamicDomain}`));
-
-      // Check 3: Explicit allowed origins
-      const isExplicitlyAllowed = explicitAllowedOrigins.includes(effectiveOrigin);
-
-      // Check 4: Localhost in development
-      const isLocalhost = !isProduction && (host === "localhost" || host === "127.0.0.1" || host.includes("localhost"));
-
-      console.log(`[CORS Debug] Checks:`, { isMydocDomain, isDynamicDomain, isExplicitlyAllowed, isLocalhost });
-
-      if (isMydocDomain || isDynamicDomain || isExplicitlyAllowed || isLocalhost) {
-        // ✅ CRITICAL: Return the exact origin string, NOT true
-        // This ensures Access-Control-Allow-Origin: https://subdomain.mydoc90.com
-        console.log(`[CORS Success] Allowing origin: ${effectiveOrigin}`);
-        callback(null, effectiveOrigin);
+      if (isMydoc90 || isLocal) {
+        // IMPORTANT: Reflect the origin string itself, NEVER return 'true'
+        callback(null, origin);
       } else {
-        console.error(`[CORS Reject] Origin not allowed: ${effectiveOrigin}`);
-        callback(new Error(`CORS: Origin ${effectiveOrigin} not allowed`), false);
+        console.error(`[CORS Blocked]: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
       }
-    } catch (error) {
-      console.error(`[CORS Error] Failed to parse origin: ${effectiveOrigin}`, error.message);
-      callback(new Error(`CORS: Invalid origin format`), false);
+    } catch (err) {
+      callback(new Error("Invalid Origin Format"));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-Requested-With",
-    "Accept",
-    "Origin",
-  ],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   exposedHeaders: ["Authorization"],
   preflightContinue: false,
-  optionsSuccessStatus: 204,
+  optionsSuccessStatus: 204
 };
 
 // ============================================
-// MIDDLEWARE ORDER - CORS must be early
+// MIDDLEWARE ORDER - CORS MUST BE FIRST
 // ============================================
 
-// Add Vary: Origin header to all responses (prevents caching issues)
-app.use((req, res, next) => {
-  res.vary("Origin");
-  next();
-});
-
-// CORS must come BEFORE helmet to ensure headers are set properly
+// 1. CORS first - before anything else that might set headers
 app.use(cors(corsOptions));
 
-// Helmet after CORS
+// 2. Helmet after CORS with cross-origin policy
 app.use(helmet({
-  // Disable crossOriginResourcePolicy to prevent conflicts with CORS
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
-// Rate limiting after CORS
+// 3. Rate limiting
 app.use(generalLimiter);
-
-// Debug middleware - log all incoming requests
-app.use((req, res, next) => {
-  console.log(`[Request] ${req.method} ${req.path}`);
-  console.log(`[Request] Origin header: ${req.headers.origin || "MISSING"}`);
-  console.log(`[Request] Host header: ${req.headers.host || "MISSING"}`);
-  console.log(`[Request] X-Forwarded-Host: ${req.headers["x-forwarded-host"] || "MISSING"}`);
-  console.log(`[Request] Referer: ${req.headers.referer || "MISSING"}`);
-  next();
-});
 app.use(express.json());
 
 app.use("/api/patients/login", authLimiter);
