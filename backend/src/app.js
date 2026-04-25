@@ -46,40 +46,27 @@ const explicitAllowedOrigins = [
 
 // --- استبدل الجزء ده في app.js ---
 
+// --- استبدال شامل لجزء الـ CORS ---
+
 const corsOptions = {
   origin: (origin, callback) => {
-    // 1. السماح بالطلبات اللي من غير Origin (زي الموبايل أو curl)
+    // 1. السماح بالطلبات اللي من غير Origin (زي الموبايل)
     if (!origin) return callback(null, true);
 
-    try {
-      const url = new URL(origin);
-      const hostName = url.hostname.toLowerCase();
+    const host = new URL(origin).hostname.toLowerCase();
 
-      // الدومين الأساسي بتاعك
-      const mainDomain = "mydoc90.com";
-      const dynamicDomain = (process.env.MAIN_DOMAIN || "")
-        .trim()
-        .toLowerCase();
+    // 2. قائمة الدومينات المسموحة (تأكد إنها مطابقة لدومينك)
+    const isMydocDomain =
+      host === "mydoc90.com" || host.endsWith(".mydoc90.com");
+    const isLocal = host === "localhost" || host === "127.0.0.1";
 
-      // فحص هل الموقع اللي بيكلمنا تبعنا؟
-      const isOurDomain =
-        hostName === mainDomain || hostName.endsWith("." + mainDomain);
-      const isDynamic =
-        dynamicDomain &&
-        (hostName === dynamicDomain || hostName.endsWith("." + dynamicDomain));
-      const isLocal =
-        !isProduction && (hostName === "localhost" || hostName === "127.0.0.1");
-
-      if (isOurDomain || isDynamic || isLocal) {
-        // 🔥 السر هنا: بنرجع الـ origin نفسه كـ String مش true
-        // ده بيجبر السيرفر يبعت Access-Control-Allow-Origin: [اسم موقعك]
-        callback(null, origin);
-      } else {
-        console.warn(`CORS blocked for: ${origin}`);
-        callback(new Error("Not allowed by CORS"));
-      }
-    } catch (err) {
-      callback(new Error("Invalid Origin"));
+    if (isMydocDomain || isLocal) {
+      // ✅ السر هنا: بنرجع الـ origin نفسه كـ String مش true
+      // ده بيخلي الـ Header يتبعت فيه: Access-Control-Allow-Origin: https://www.mydoc90.com
+      callback(null, origin);
+    } else {
+      console.warn(`❌ CORS Reject: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
     }
   },
   credentials: true,
