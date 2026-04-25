@@ -33,14 +33,16 @@ app.disable("x-powered-by");
 app.set("trust proxy", 1);
 
 const isProduction = process.env.NODE_ENV === "production";
-const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
-  ? process.env.CORS_ALLOWED_ORIGINS.split(",")
-      .map((origin) => origin.trim())
-      .filter(Boolean)
-  : [];
 
-// Hardcoded fallback domain for mydoc90.com and its subdomains
-const FALLBACK_DOMAIN = "mydoc90.com";
+// Explicit allowed origins list
+const explicitAllowedOrigins = [
+  "https://mydoc90.com",
+  "https://www.mydoc90.com",
+  "https://api.mydoc90.com",
+  ...(process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(",").map((o) => o.trim())
+    : []),
+];
 
 const corsOptions = {
   origin: (origin, callback) => {
@@ -54,59 +56,42 @@ const corsOptions = {
       const parsedOrigin = new URL(origin);
       const hostName = parsedOrigin.hostname.toLowerCase();
 
-      // Check 1: Dynamic root domain from env (e.g., mydoc90.com)
-      const dynamicRootDomain = (process.env.MAIN_DOMAIN || "")
-        .trim()
-        .toLowerCase();
-      if (dynamicRootDomain) {
-        if (
-          hostName === dynamicRootDomain ||
-          hostName.endsWith(`.${dynamicRootDomain}`)
-        ) {
-          callback(null, true);
-          return;
-        }
-      }
+      // Check 1: Subdomain of mydoc90.com (e.g., loay.mydoc90.com)
+      const isMydoc90Subdomain = hostName.endsWith(".mydoc90.com");
+      const isMydoc90Main = hostName === "mydoc90.com" || hostName === "www.mydoc90.com";
 
-      // Check 2: Fallback hardcoded domain (mydoc90.com and *.mydoc90.com)
-      if (
-        hostName === FALLBACK_DOMAIN ||
-        hostName.endsWith(`.${FALLBACK_DOMAIN}`)
-      ) {
-        callback(null, true);
-        return;
-      }
+      // Check 2: Dynamic root domain from env
+      const dynamicRootDomain = (process.env.MAIN_DOMAIN || "").trim().toLowerCase();
+      const isDynamicSubdomain = dynamicRootDomain && hostName.endsWith(`.${dynamicRootDomain}`);
+      const isDynamicMain = dynamicRootDomain && hostName === dynamicRootDomain;
 
-      // Check 3: Explicit allowed origins from env
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      // Check 4: Development mode - allow localhost origins
-      if (
+      // Check 3: Localhost in development
+      const isLocalhost =
         !isProduction &&
-        (hostName === "localhost" || hostName.includes("localhost"))
-      ) {
-        callback(null, true);
+        (hostName === "localhost" ||
+          hostName.includes("localhost") ||
+          hostName === "127.0.0.1");
+
+      // Check 4: Explicitly allowed origins
+      const isExplicitlyAllowed = explicitAllowedOrigins.includes(origin);
+
+      if (isMydoc90Subdomain || isMydoc90Main || isDynamicSubdomain || isDynamicMain || isLocalhost || isExplicitlyAllowed) {
+        // Reflect the exact origin back (required for credentials)
+        callback(null, origin);
         return;
       }
 
-      // Log rejected origins for debugging (only in production)
-      if (isProduction) {
-        console.warn(`CORS rejected origin: ${origin} (hostname: ${hostName})`);
-      }
-
+      // Log rejected origins for debugging
+      console.warn(`CORS rejected origin: ${origin} (hostname: ${hostName})`);
       callback(new Error("Not allowed by CORS"));
     } catch (error) {
-      // Invalid origin format
       console.error(`CORS error parsing origin: ${origin}`, error.message);
       callback(new Error("Invalid origin format"));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
   exposedHeaders: ["Authorization"],
 };
 
