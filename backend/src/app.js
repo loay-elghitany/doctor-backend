@@ -44,55 +44,55 @@ const explicitAllowedOrigins = [
     : []),
 ];
 
+// --- استبدل الجزء ده في app.js ---
+
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps, curl, or server-to-server)
-    if (!origin) {
-      callback(null, true);
-      return;
-    }
+    // 1. السماح بالطلبات اللي من غير Origin (زي الموبايل أو curl)
+    if (!origin) return callback(null, true);
 
     try {
-      const parsedOrigin = new URL(origin);
-      const hostName = parsedOrigin.hostname.toLowerCase();
+      const url = new URL(origin);
+      const hostName = url.hostname.toLowerCase();
 
-      // Check 1: Subdomain of mydoc90.com (e.g., loay.mydoc90.com)
-      const isMydoc90Subdomain = hostName.endsWith(".mydoc90.com");
-      const isMydoc90Main = hostName === "mydoc90.com" || hostName === "www.mydoc90.com";
+      // الدومين الأساسي بتاعك
+      const mainDomain = "mydoc90.com";
+      const dynamicDomain = (process.env.MAIN_DOMAIN || "")
+        .trim()
+        .toLowerCase();
 
-      // Check 2: Dynamic root domain from env
-      const dynamicRootDomain = (process.env.MAIN_DOMAIN || "").trim().toLowerCase();
-      const isDynamicSubdomain = dynamicRootDomain && hostName.endsWith(`.${dynamicRootDomain}`);
-      const isDynamicMain = dynamicRootDomain && hostName === dynamicRootDomain;
+      // فحص هل الموقع اللي بيكلمنا تبعنا؟
+      const isOurDomain =
+        hostName === mainDomain || hostName.endsWith("." + mainDomain);
+      const isDynamic =
+        dynamicDomain &&
+        (hostName === dynamicDomain || hostName.endsWith("." + dynamicDomain));
+      const isLocal =
+        !isProduction && (hostName === "localhost" || hostName === "127.0.0.1");
 
-      // Check 3: Localhost in development
-      const isLocalhost =
-        !isProduction &&
-        (hostName === "localhost" ||
-          hostName.includes("localhost") ||
-          hostName === "127.0.0.1");
-
-      // Check 4: Explicitly allowed origins
-      const isExplicitlyAllowed = explicitAllowedOrigins.includes(origin);
-
-      if (isMydoc90Subdomain || isMydoc90Main || isDynamicSubdomain || isDynamicMain || isLocalhost || isExplicitlyAllowed) {
-        // Reflect the exact origin back (required for credentials)
+      if (isOurDomain || isDynamic || isLocal) {
+        // 🔥 السر هنا: بنرجع الـ origin نفسه كـ String مش true
+        // ده بيجبر السيرفر يبعت Access-Control-Allow-Origin: [اسم موقعك]
         callback(null, origin);
-        return;
+      } else {
+        console.warn(`CORS blocked for: ${origin}`);
+        callback(new Error("Not allowed by CORS"));
       }
-
-      // Log rejected origins for debugging
-      console.warn(`CORS rejected origin: ${origin} (hostname: ${hostName})`);
-      callback(new Error("Not allowed by CORS"));
-    } catch (error) {
-      console.error(`CORS error parsing origin: ${origin}`, error.message);
-      callback(new Error("Invalid origin format"));
+    } catch (err) {
+      callback(new Error("Invalid Origin"));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+  ],
   exposedHeaders: ["Authorization"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
 };
 
 app.use(helmet());
