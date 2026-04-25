@@ -39,20 +39,26 @@ const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
       .filter(Boolean)
   : [];
 
+// Hardcoded fallback domain for mydoc90.com and its subdomains
+const FALLBACK_DOMAIN = "mydoc90.com";
+
 const corsOptions = {
   origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, or server-to-server)
     if (!origin) {
       callback(null, true);
       return;
     }
 
-    const dynamicRootDomain = (process.env.MAIN_DOMAIN || "")
-      .trim()
-      .toLowerCase();
-    if (dynamicRootDomain) {
-      try {
-        const parsedOrigin = new URL(origin);
-        const hostName = parsedOrigin.hostname.toLowerCase();
+    try {
+      const parsedOrigin = new URL(origin);
+      const hostName = parsedOrigin.hostname.toLowerCase();
+
+      // Check 1: Dynamic root domain from env (e.g., mydoc90.com)
+      const dynamicRootDomain = (process.env.MAIN_DOMAIN || "")
+        .trim()
+        .toLowerCase();
+      if (dynamicRootDomain) {
         if (
           hostName === dynamicRootDomain ||
           hostName.endsWith(`.${dynamicRootDomain}`)
@@ -60,28 +66,47 @@ const corsOptions = {
           callback(null, true);
           return;
         }
-      } catch (_error) {
-        // Keep fallback checks for invalid origin shape.
       }
-    }
 
-    if (allowedOrigins.length === 0) {
-      if (isProduction) {
-        callback(new Error("Not allowed by CORS"));
+      // Check 2: Fallback hardcoded domain (mydoc90.com and *.mydoc90.com)
+      if (
+        hostName === FALLBACK_DOMAIN ||
+        hostName.endsWith(`.${FALLBACK_DOMAIN}`)
+      ) {
+        callback(null, true);
         return;
       }
-      callback(null, true);
-      return;
-    }
 
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
-    }
+      // Check 3: Explicit allowed origins from env
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
 
-    callback(new Error("Not allowed by CORS"));
+      // Check 4: Development mode - allow localhost origins
+      if (
+        !isProduction &&
+        (hostName === "localhost" || hostName.includes("localhost"))
+      ) {
+        callback(null, true);
+        return;
+      }
+
+      // Log rejected origins for debugging (only in production)
+      if (isProduction) {
+        console.warn(`CORS rejected origin: ${origin} (hostname: ${hostName})`);
+      }
+
+      callback(new Error("Not allowed by CORS"));
+    } catch (error) {
+      // Invalid origin format
+      console.error(`CORS error parsing origin: ${origin}`, error.message);
+      callback(new Error("Invalid origin format"));
+    }
   },
   credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
   exposedHeaders: ["Authorization"],
 };
 
