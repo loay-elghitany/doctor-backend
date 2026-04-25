@@ -35,14 +35,6 @@ if (databaseUri && isProduction) {
   }
 }
 
-if (missingEnv.length > 0) {
-  logger.error(
-    "EnvValidation",
-    `Missing required environment variables: ${missingEnv.join(", ")}`,
-  );
-  process.exit(1);
-}
-
 connectDB(databaseUri);
 
 const PORT = process.env.PORT || 5000;

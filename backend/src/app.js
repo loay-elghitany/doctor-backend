@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import helmet from "helmet";
 import {
   generalLimiter,
@@ -35,58 +34,52 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
-// ============================================
-// CORS CONFIGURATION - Production Hardened
-// ============================================
+// Custom CORS middleware - guarantees no wildcard *
+const customCors = (req, res, next) => {
+  const requestOrigin = req.headers.origin;
+  let allowedOrigin = `https://${MAIN_DOMAIN}`;
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    // 1. If Origin is missing (Render Proxy issue), fallback to main domain
-    // instead of returning 'true' (which leaks wildcard *)
-    if (!origin) {
-      console.log("[CORS] Origin missing, allowing main domain fallback");
-      return callback(null, `https://${MAIN_DOMAIN}`);
-    }
-
+  if (requestOrigin) {
     try {
-      const hostName = new URL(origin).hostname.toLowerCase();
-
-      // 2. Allow our main domain and ANY subdomain (loay.mydoc90.com, etc.)
-      const isMydoc90 = hostName === MAIN_DOMAIN || hostName.endsWith("." + MAIN_DOMAIN);
-      const isLocal = hostName === "localhost" || hostName === "127.0.0.1";
-
-      if (isMydoc90 || isLocal) {
-        // IMPORTANT: Reflect the origin string itself, NEVER return 'true'
-        callback(null, origin);
-      } else {
-        console.error(`[CORS Blocked]: ${origin}`);
-        callback(new Error("Not allowed by CORS"));
-      }
-    } catch (err) {
-      callback(new Error("Invalid Origin Format"));
+      const host = new URL(requestOrigin).hostname.toLowerCase();
+      const isAllowed = host === MAIN_DOMAIN || host.endsWith("." + MAIN_DOMAIN) || host === "localhost" || host === "127.0.0.1";
+      if (isAllowed) allowedOrigin = requestOrigin;
+    } catch (e) {
+      console.error("[CORS] Invalid origin:", requestOrigin);
     }
-  },
-  credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
-  exposedHeaders: ["Authorization"],
-  preflightContinue: false,
-  optionsSuccessStatus: 204
+  } else {
+    // Try to get from referer
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        const refHost = new URL(referer).hostname.toLowerCase();
+        if (refHost === MAIN_DOMAIN || refHost.endsWith("." + MAIN_DOMAIN)) {
+          allowedOrigin = `https://${refHost}`;
+        }
+      } catch (e) {}
+    }
+  }
+
+  // Set headers explicitly - NEVER use *
+  res.header("Access-Control-Allow-Origin", allowedOrigin);
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,PATCH,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Requested-With,Accept");
+  res.header("Access-Control-Expose-Headers", "Authorization");
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+  next();
 };
 
-// ============================================
-// MIDDLEWARE ORDER - CORS MUST BE FIRST
-// ============================================
+// Apply custom CORS first
+app.use(customCors);
 
-// 1. CORS first - before anything else that might set headers
-app.use(cors(corsOptions));
+// Helmet after CORS
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 
-// 2. Helmet after CORS with cross-origin policy
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}));
-
-// 3. Rate limiting
+// Rate limiting
 app.use(generalLimiter);
 app.use(express.json());
 
