@@ -1,4 +1,5 @@
 import express from "express";
+import cors from "cors";
 import helmet from "helmet";
 import {
   generalLimiter,
@@ -34,59 +35,60 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
-const allowedOrigins = [
-  "https://mydoc90.com",
-  "https://www.mydoc90.com",
-  "http://localhost:5173",
-  "http://localhost:3000",
-];
+const allowedOrigins = isProduction
+  ? ["https://mydoc90.com", "https://www.mydoc90.com"]
+  : [
+      "https://mydoc90.com",
+      "https://www.mydoc90.com",
+      "http://localhost:5173",
+      "http://localhost:3000",
+    ];
 
-app.use((req, res, next) => {
-  const requestOrigin = req.headers.origin;
-
-  let isValidOrigin = false;
-
-  if (requestOrigin) {
-    if (
-      allowedOrigins.includes(requestOrigin) ||
-      requestOrigin.endsWith(".mydoc90.com")
-    ) {
-      isValidOrigin = true;
+function isAllowedOrigin(origin) {
+  if (!origin) return false;
+  if (allowedOrigins.includes(origin)) return true;
+  // Allow any https://*.mydoc90.com subdomain
+  try {
+    const url = new URL(origin);
+    if (url.protocol === "https:" && url.hostname.endsWith(`.${MAIN_DOMAIN}`)) {
+      return true;
     }
+  } catch {
+    return false;
   }
+  return false;
+}
 
-  // Handle missing origin (e.g., Postman) or explicitly valid origins
-  if (!requestOrigin || isValidOrigin) {
-    res.setHeader("Access-Control-Allow-Origin", requestOrigin || "https://mydoc90.com");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader(
-      "Access-Control-Allow-Methods",
-      "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-    );
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain",
-    );
-    res.setHeader("Access-Control-Expose-Headers", "Authorization");
-    res.setHeader("Vary", "Origin");
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, Postman, server-to-server)
+    if (!origin) return callback(null, true);
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    callback(new Error("Not allowed by CORS"));
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Requested-With",
+    "Accept",
+    "X-Subdomain",
+  ],
+  exposedHeaders: ["Authorization"],
+  maxAge: 86400, // Preflight cache: 24 hours
+};
 
-    if (req.method === "OPTIONS") {
-      return res.status(200).end();
-    }
-
-    return next();
-  }
-
-  console.warn("[CORS] Rejected origin:", requestOrigin);
-  return res.status(403).json({
-    error: "CORS Error",
-    message: "Origin not allowed",
-    origin: requestOrigin,
-  });
-});
+app.use(cors(corsOptions));
 
 // Helmet after CORS
-app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    contentSecurityPolicy: false,
+  }),
+);
 
 // Rate limiting
 app.use(generalLimiter);

@@ -7,6 +7,15 @@ const globalErrorHandler = (err, req, res, next) => {
     return next(err);
   }
 
+  // Handle CORS rejection from the cors library
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({
+      success: false,
+      message: "CORS Error: Origin not allowed",
+      data: null,
+    });
+  }
+
   const statusCode = err.status || err.statusCode || 500;
   const requestContext = {
     method: req.method,
