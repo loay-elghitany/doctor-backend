@@ -34,38 +34,92 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
-// Custom CORS middleware - guarantees no wildcard *
+// Custom CORS middleware - guarantees no wildcard * and uses "Reflective Origin" logic
 const customCors = (req, res, next) => {
   const requestOrigin = req.headers.origin;
   let allowedOrigin = `https://${MAIN_DOMAIN}`;
+  let originSource = "default";
 
   if (requestOrigin) {
+    // Primary: Use the Origin header if valid
     try {
       const host = new URL(requestOrigin).hostname.toLowerCase();
-      const isAllowed = host === MAIN_DOMAIN || host.endsWith("." + MAIN_DOMAIN) || host === "localhost" || host === "127.0.0.1";
-      if (isAllowed) allowedOrigin = requestOrigin;
+      const isAllowed =
+        host === MAIN_DOMAIN ||
+        host.endsWith("." + MAIN_DOMAIN) ||
+        host === "localhost" ||
+        host === "127.0.0.1";
+      if (isAllowed) {
+        allowedOrigin = requestOrigin;
+        originSource = "origin-header";
+      }
     } catch (e) {
       console.error("[CORS] Invalid origin:", requestOrigin);
     }
   } else {
-    // Try to get from referer
+    // Fallback 1: Try to get from referer
     const referer = req.headers.referer;
     if (referer) {
       try {
         const refHost = new URL(referer).hostname.toLowerCase();
         if (refHost === MAIN_DOMAIN || refHost.endsWith("." + MAIN_DOMAIN)) {
           allowedOrigin = `https://${refHost}`;
+          originSource = "referer";
         }
       } catch (e) {}
     }
+
+    // Fallback 2: Reflective Origin - construct from host and x-forwarded-proto
+    // This handles cases where proxy strips the Origin header (e.g., Render)
+    if (originSource === "default") {
+      const forwardedProto = req.headers["x-forwarded-proto"];
+      const host = req.headers.host;
+      if (host) {
+        const protocol = forwardedProto === "https" ? "https" : "http";
+        const inferredOrigin = `${protocol}://${host}`;
+        // Validate that the host is a mydoc90.com subdomain or localhost
+        const hostLower = host.toLowerCase();
+        const hostname = hostLower.split(":")[0]; // Remove port if present
+        if (
+          hostname === MAIN_DOMAIN ||
+          hostname.endsWith("." + MAIN_DOMAIN) ||
+          hostname === "localhost" ||
+          hostname === "127.0.0.1"
+        ) {
+          allowedOrigin = inferredOrigin;
+          originSource = "reflective";
+          console.log(
+            "[CORS Success] Origin inferred from host header:",
+            allowedOrigin,
+          );
+        } else {
+          console.log(
+            "[CORS Warning] Host header not from allowed domain:",
+            host,
+          );
+        }
+      }
+    }
   }
 
-  // Set headers explicitly - NEVER use *
+  // Log the origin detection for debugging
+  if (originSource !== "default") {
+    console.log(`[CORS] Origin detected (${originSource}):`, allowedOrigin);
+  }
+
+  // Set headers explicitly - NEVER use * or true
   res.header("Access-Control-Allow-Origin", allowedOrigin);
   res.header("Access-Control-Allow-Credentials", "true");
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,PATCH,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type,Authorization,X-Requested-With,Accept");
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+  );
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization,X-Requested-With,Accept",
+  );
   res.header("Access-Control-Expose-Headers", "Authorization");
+  res.header("Vary", "Origin");
 
   if (req.method === "OPTIONS") {
     return res.status(204).end();

@@ -20,9 +20,7 @@ if (isProduction) {
   if (!process.env.PORT) {
     missingEnv.push("PORT");
   }
-  if (!process.env.CORS_ALLOWED_ORIGINS) {
-    missingEnv.push("CORS_ALLOWED_ORIGINS");
-  }
+  // CORS_ALLOWED_ORIGINS is now OPTIONAL - dynamic detection is handled in app.js
 }
 
 if (databaseUri && isProduction) {
