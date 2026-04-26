@@ -34,136 +34,83 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
-// DEBUG: Log all response headers before sending
-const logResponseHeaders = (req, res, next) => {
-  const originalSend = res.send;
-  const originalJson = res.json;
-
-  res.send = function (body) {
-    const headers = res.getHeaders();
-    console.log(
-      "[CORS DEBUG] Response headers before send:",
-      JSON.stringify(headers, null, 2),
-    );
-    console.log(
-      `[CORS DEBUG] ${req.method} ${req.originalUrl} - ACAO:`,
-      headers["access-control-allow-origin"],
-    );
-    return originalSend.call(this, body);
-  };
-
-  res.json = function (body) {
-    const headers = res.getHeaders();
-    console.log(
-      "[CORS DEBUG] Response headers before json:",
-      JSON.stringify(headers, null, 2),
-    );
-    console.log(
-      `[CORS DEBUG] ${req.method} ${req.originalUrl} - ACAO:`,
-      headers["access-control-allow-origin"],
-    );
-    return originalJson.call(this, body);
-  };
-
-  next();
-};
-
-app.use(logResponseHeaders);
-
-// Custom CORS middleware - guarantees no wildcard * and uses "Reflective Origin" logic
-const customCors = (req, res, next) => {
+// Production CORS Middleware - STRICT MODE
+// NEVER returns wildcard (*) - only sets headers for valid Origin requests
+const strictCors = (req, res, next) => {
   const requestOrigin = req.headers.origin;
-  // Default fallback - always HTTPS for production
-  let allowedOrigin = `https://www.${MAIN_DOMAIN}`;
-  let originSource = "default";
 
-  if (requestOrigin) {
-    // Primary: Use the Origin header if valid
-    try {
-      const url = new URL(requestOrigin);
-      const host = url.hostname.toLowerCase();
-      const protocol = url.protocol;
-      // Ensure HTTPS for production origins
-      const isLocalhost = host === "localhost" || host === "127.0.0.1";
-      const isMydocDomain =
-        host === MAIN_DOMAIN || host.endsWith("." + MAIN_DOMAIN);
-
-      if (isMydocDomain || isLocalhost) {
-        // Force HTTPS for mydoc90.com domains
-        if (isMydocDomain && protocol === "http:") {
-          allowedOrigin = `https://${host}`;
-        } else {
-          allowedOrigin = requestOrigin;
-        }
-        originSource = "origin-header";
-      }
-    } catch (e) {
-      console.error("[CORS] Invalid origin:", requestOrigin);
-    }
-  } else {
-    // Fallback 1: Try to get from referer - this is the MOST RELIABLE for subdomain detection
-    const referer = req.headers.referer;
-    if (referer) {
-      try {
-        const url = new URL(referer);
-        const host = url.hostname.toLowerCase();
-        const isMydocDomain =
-          host === MAIN_DOMAIN || host.endsWith("." + MAIN_DOMAIN);
-        const isLocalhost = host === "localhost" || host === "127.0.0.1";
-
-        if (isMydocDomain || isLocalhost) {
-          // Always use HTTPS for mydoc90.com domains
-          if (isMydocDomain) {
-            allowedOrigin = `https://${host}`;
-          } else {
-            allowedOrigin = `${url.protocol}//${host}`;
-          }
-          originSource = "referer";
-        }
-      } catch (e) {
-        console.error("[CORS] Invalid referer:", referer);
-      }
-    }
-
-    // Fallback 2: Use hardcoded production origin (NOT req.headers.host which is the API host)
-    // This handles cases where proxy strips both Origin and Referer headers
-    if (originSource === "default") {
-      // NEVER use req.headers.host here - that's the API server's host (api.mydoc90.com)
-      // Instead, use the known frontend URL
-      allowedOrigin = `https://www.${MAIN_DOMAIN}`;
-      originSource = "hardcoded-fallback";
-      console.log(
-        "[CORS] Using hardcoded fallback origin (no Origin/Referer):",
-        allowedOrigin,
-      );
-    }
+  // If no Origin header, skip CORS entirely (not a cross-origin request)
+  if (!requestOrigin) {
+    console.log(
+      "[CORS] No Origin header - skipping CORS for:",
+      req.method,
+      req.originalUrl,
+    );
+    return next();
   }
 
-  // Log the origin detection for debugging
-  console.log(`[CORS] Origin determined (${originSource}):`, allowedOrigin);
+  // Parse and validate origin
+  let isValidOrigin = false;
+  let normalizedOrigin = requestOrigin;
 
-  // Set headers explicitly - NEVER use * or true
-  res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  try {
+    const url = new URL(requestOrigin);
+    const hostname = url.hostname.toLowerCase();
+    const protocol = url.protocol;
+
+    // Check if origin is allowed
+    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
+    const isMydocDomain =
+      hostname === MAIN_DOMAIN || hostname.endsWith("." + MAIN_DOMAIN);
+
+    if (isMydocDomain || isLocalhost) {
+      isValidOrigin = true;
+      // Normalize to HTTPS for mydoc90.com domains
+      if (isMydocDomain && protocol === "http:") {
+        normalizedOrigin = `https://${hostname}`;
+      } else {
+        normalizedOrigin = requestOrigin;
+      }
+    }
+  } catch (e) {
+    console.error("[CORS] Invalid Origin format:", requestOrigin);
+  }
+
+  // Reject invalid origins
+  if (!isValidOrigin) {
+    console.warn("[CORS] Rejected origin:", requestOrigin);
+    return res.status(403).json({
+      error: "CORS Error",
+      message: "Origin not allowed",
+      origin: requestOrigin,
+    });
+  }
+
+  // Set CORS headers (NEVER use *)
+  res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader(
     "Access-Control-Allow-Methods",
-    "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+    "GET, POST, PUT, DELETE, PATCH, OPTIONS",
   );
   res.setHeader(
     "Access-Control-Allow-Headers",
-    "Content-Type,Authorization,X-Requested-With,Accept",
+    "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain",
   );
   res.setHeader("Access-Control-Expose-Headers", "Authorization");
   res.setHeader("Vary", "Origin");
 
+  // Handle preflight requests
   if (req.method === "OPTIONS") {
     return res.status(204).end();
   }
+
+  console.log("[CORS] Allowed origin:", normalizedOrigin);
   next();
 };
 
-// Apply custom CORS first
-app.use(customCors);
+// Apply strict CORS as first middleware
+app.use(strictCors);
 
 // Helmet after CORS
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
