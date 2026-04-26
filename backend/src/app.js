@@ -34,83 +34,56 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
-// Production CORS Middleware - STRICT MODE
-// NEVER returns wildcard (*) - only sets headers for valid Origin requests
-const strictCors = (req, res, next) => {
+const allowedOrigins = [
+  "https://mydoc90.com",
+  "https://www.mydoc90.com",
+  "http://localhost:5173",
+  "http://localhost:3000",
+];
+
+app.use((req, res, next) => {
   const requestOrigin = req.headers.origin;
 
-  // If no Origin header, skip CORS entirely (not a cross-origin request)
-  if (!requestOrigin) {
-    console.log(
-      "[CORS] No Origin header - skipping CORS for:",
-      req.method,
-      req.originalUrl,
+  let isValidOrigin = false;
+
+  if (requestOrigin) {
+    if (
+      allowedOrigins.includes(requestOrigin) ||
+      requestOrigin.endsWith(".mydoc90.com")
+    ) {
+      isValidOrigin = true;
+    }
+  }
+
+  // Handle missing origin (e.g., Postman) or explicitly valid origins
+  if (!requestOrigin || isValidOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin || "*");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader(
+      "Access-Control-Allow-Methods",
+      "GET, POST, PUT, DELETE, PATCH, OPTIONS",
     );
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain",
+    );
+    res.setHeader("Access-Control-Expose-Headers", "Authorization");
+    res.setHeader("Vary", "Origin");
+
+    if (req.method === "OPTIONS") {
+      return res.status(200).end();
+    }
+
     return next();
   }
 
-  // Parse and validate origin
-  let isValidOrigin = false;
-  let normalizedOrigin = requestOrigin;
-
-  try {
-    const url = new URL(requestOrigin);
-    const hostname = url.hostname.toLowerCase();
-    const protocol = url.protocol;
-
-    // Check if origin is allowed
-    const isLocalhost = hostname === "localhost" || hostname === "127.0.0.1";
-    const isMydocDomain =
-      hostname === MAIN_DOMAIN || hostname.endsWith("." + MAIN_DOMAIN);
-
-    if (isMydocDomain || isLocalhost) {
-      isValidOrigin = true;
-      // Normalize to HTTPS for mydoc90.com domains
-      if (isMydocDomain && protocol === "http:") {
-        normalizedOrigin = `https://${hostname}`;
-      } else {
-        normalizedOrigin = requestOrigin;
-      }
-    }
-  } catch (e) {
-    console.error("[CORS] Invalid Origin format:", requestOrigin);
-  }
-
-  // Reject invalid origins
-  if (!isValidOrigin) {
-    console.warn("[CORS] Rejected origin:", requestOrigin);
-    return res.status(403).json({
-      error: "CORS Error",
-      message: "Origin not allowed",
-      origin: requestOrigin,
-    });
-  }
-
-  // Set CORS headers (NEVER use *)
-  res.setHeader("Access-Control-Allow-Origin", normalizedOrigin);
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, DELETE, PATCH, OPTIONS",
-  );
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain",
-  );
-  res.setHeader("Access-Control-Expose-Headers", "Authorization");
-  res.setHeader("Vary", "Origin");
-
-  // Handle preflight requests
-  if (req.method === "OPTIONS") {
-    return res.status(204).end();
-  }
-
-  console.log("[CORS] Allowed origin:", normalizedOrigin);
-  next();
-};
-
-// Apply strict CORS as first middleware
-app.use(strictCors);
+  console.warn("[CORS] Rejected origin:", requestOrigin);
+  return res.status(403).json({
+    error: "CORS Error",
+    message: "Origin not allowed",
+    origin: requestOrigin,
+  });
+});
 
 // Helmet after CORS
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
