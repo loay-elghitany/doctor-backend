@@ -34,6 +34,65 @@ app.set("trust proxy", 1);
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
+// DEBUG: Hardcoded CORS override - REMOVE AFTER TESTING
+// This middleware runs FIRST to ensure no wildcard * is ever sent
+const hardcodedCorsOverride = (req, res, next) => {
+  // Force a specific origin to test if we can override any cached * response
+  const forcedOrigin =
+    process.env.CORS_DEBUG_ORIGIN || "https://www.mydoc90.com";
+  res.setHeader("Access-Control-Allow-Origin", forcedOrigin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,DELETE,PATCH,OPTIONS",
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type,Authorization,X-Requested-With,Accept",
+  );
+  res.setHeader("Access-Control-Expose-Headers", "Authorization");
+  next();
+};
+
+// Apply hardcoded CORS FIRST (before anything else)
+app.use(hardcodedCorsOverride);
+
+// DEBUG: Log all response headers before sending
+const logResponseHeaders = (req, res, next) => {
+  const originalSend = res.send;
+  const originalJson = res.json;
+
+  res.send = function (body) {
+    const headers = res.getHeaders();
+    console.log(
+      "[CORS DEBUG] Response headers before send:",
+      JSON.stringify(headers, null, 2),
+    );
+    console.log(
+      `[CORS DEBUG] ${req.method} ${req.originalUrl} - ACAO:`,
+      headers["access-control-allow-origin"],
+    );
+    return originalSend.call(this, body);
+  };
+
+  res.json = function (body) {
+    const headers = res.getHeaders();
+    console.log(
+      "[CORS DEBUG] Response headers before json:",
+      JSON.stringify(headers, null, 2),
+    );
+    console.log(
+      `[CORS DEBUG] ${req.method} ${req.originalUrl} - ACAO:`,
+      headers["access-control-allow-origin"],
+    );
+    return originalJson.call(this, body);
+  };
+
+  next();
+};
+
+app.use(logResponseHeaders);
+
 // Custom CORS middleware - guarantees no wildcard * and uses "Reflective Origin" logic
 const customCors = (req, res, next) => {
   const requestOrigin = req.headers.origin;
