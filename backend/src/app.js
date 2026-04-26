@@ -57,7 +57,7 @@ app.use((req, res, next) => {
 
   // Handle missing origin (e.g., Postman) or explicitly valid origins
   if (!requestOrigin || isValidOrigin) {
-    res.setHeader("Access-Control-Allow-Origin", requestOrigin || "*");
+    res.setHeader("Access-Control-Allow-Origin", requestOrigin || "https://mydoc90.com");
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader(
       "Access-Control-Allow-Methods",
