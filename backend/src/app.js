@@ -26,8 +26,25 @@ import globalErrorHandler from "./middleware/globalErrorHandler.js";
 import notFoundHandler from "./middleware/notFoundHandler.js";
 
 const app = express();
-app.disable("x-powered-by");
+
+// ============================================
+// RENDER PROXY CONFIGURATION
+// ============================================
+// Trust proxy - required for Render.com behind reverse proxy
+// This ensures req.ip and secure cookies work correctly
 app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// ============================================
+// COOKIE SECURITY (if you use cookies)
+// ============================================
+// Example cookie configuration for cross-subdomain SaaS:
+// res.cookie('token', value, {
+//   secure: true,        // HTTPS only (required for Render)
+//   sameSite: 'none',    // Cross-site/subdomain access
+//   httpOnly: true,      // Prevent XSS
+//   maxAge: 24 * 60 * 60 * 1000  // 24 hours
+// });
 
 const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
@@ -70,14 +87,15 @@ function isAllowedOrigin(origin) {
  */
 const corsOptions = {
   origin: (origin, callback) => {
-    // No origin = server-to-server, curl, Postman - allow but no CORS headers needed
+    // No origin = server-to-server (curl, Postman) - no CORS headers needed
     if (!origin) {
       return callback(null, false);
     }
 
-    // Browser request with Origin header
+    // Validate and allow exact origin string
     if (isAllowedOrigin(origin)) {
-      // MUST return exact origin string when credentials: true
+      // Return the EXACT origin - REQUIRED when credentials: true
+      // Never return true (causes *) or false (disables CORS)
       return callback(null, origin);
     }
 
@@ -115,6 +133,24 @@ app.use(
     contentSecurityPolicy: false, // Disabled for API server
   }),
 );
+
+// ============================================
+// VERCEL EDGE NETWORK COMPATIBILITY
+// ============================================
+app.use((req, res, next) => {
+  // Add headers for Vercel Edge Network and CDN compatibility
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+
+  // CORS headers are set by cors() middleware, but ensure Vary: Origin for CDNs
+  // This tells CDNs to cache responses separately per origin
+  if (req.headers.origin) {
+    res.setHeader("Vary", "Origin");
+  }
+
+  next();
+});
 
 // ============================================
 // REQUEST DEBUGGING (All environments for CORS troubleshooting)
@@ -159,9 +195,6 @@ app.use(express.urlencoded({ extended: true }));
 // ============================================
 // ROUTES (Rate limiting is applied INSIDE route files)
 // ============================================
-// Note: Rate limiters now skip OPTIONS requests automatically
-// See middleware/rateLimiter.js for skip logic
-
 app.use("/api/patients", patientRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/secretaries", secretaryRoutes);
