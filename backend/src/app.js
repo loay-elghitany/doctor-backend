@@ -59,19 +59,28 @@ function isAllowedOrigin(origin) {
   return false;
 }
 
+/**
+ * CORS Configuration - SECURITY CRITICAL
+ *
+ * Rules:
+ * 1. With credentials: true, NEVER return true or * in callback
+ *    Must return the EXACT origin string or empty string
+ * 2. No origin header (server-to-server): return "" (empty string)
+ *    Browser requests always have Origin header; empty = non-browser
+ * 3. Rejected origins: throw error. Error handler does NOT echo origin.
+ *    This prevents information disclosure to unauthorized origins.
+ */
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow requests with no origin (mobile apps, Postman, server-to-server)
     if (!origin) {
-      logger.debug(
-        "CORS",
-        "Request with no origin allowed (mobile/server-to-server)",
-      );
-      return callback(null, true);
+      // No origin header = server-to-server, mobile apps, direct API access
+      logger.debug("CORS", "No origin header - allowing (server-to-server)");
+      return callback(null, "");
     }
     if (isAllowedOrigin(origin)) {
       logger.debug("CORS", `Origin allowed: ${origin}`);
-      return callback(null, true);
+      // Return the EXACT origin string - NEVER true or * with credentials
+      return callback(null, origin);
     }
     logger.warn("CORS", `Origin rejected: ${origin}`);
     callback(new Error("Not allowed by CORS"));

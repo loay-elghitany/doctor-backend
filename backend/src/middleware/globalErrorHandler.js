@@ -3,16 +3,11 @@ import logger from "../utils/logger.js";
 const isProduction = process.env.NODE_ENV === "production";
 
 /**
- * Helper to ensure CORS headers are present on error responses
- * This is critical for browser error handling
+ * SECURITY CRITICAL: We do NOT set CORS headers for rejected origins.
+ * If we echo the attacker origin, browser allows them to read the response.
+ * By NOT setting CORS headers, browser blocks the response entirely.
+ * This prevents information disclosure to unauthorized origins.
  */
-const ensureCorsHeaders = (req, res) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-  }
-};
 
 const globalErrorHandler = (err, req, res, next) => {
   if (res.headersSent) {
@@ -20,21 +15,14 @@ const globalErrorHandler = (err, req, res, next) => {
   }
 
   // Handle CORS rejection from the cors library
+  // CRITICAL: Do NOT set CORS headers here. The cors() middleware rejected
+  // this origin for a reason. If we set CORS headers now, the browser will
+  // allow the attacker to read this 403 response, leaking information.
+  // By NOT setting headers, browser blocks the response entirely (security win).
   if (err.message === "Not allowed by CORS") {
-    ensureCorsHeaders(req, res);
     return res.status(403).json({
       success: false,
       message: "CORS Error: Origin not allowed",
-      data: null,
-    });
-  }
-
-  // Handle rate limit errors
-  if (err.status === 429 || err.statusCode === 429) {
-    ensureCorsHeaders(req, res);
-    return res.status(429).json({
-      success: false,
-      message: err.message || "Too many requests, please try again later",
       data: null,
     });
   }
@@ -60,8 +48,9 @@ const globalErrorHandler = (err, req, res, next) => {
     });
   }
 
-  // Ensure CORS headers on all error responses
-  ensureCorsHeaders(req, res);
+  // Note: For 500 errors and all other errors, CORS headers are already set
+  // by the cors middleware which runs first in the chain.
+  // We do NOT duplicate CORS logic here - single source of truth principle.
 
   return res.status(500).json({
     success: false,
