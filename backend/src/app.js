@@ -89,8 +89,6 @@ const corsOptions = {
 // CORS must be FIRST middleware
 app.use(cors(corsOptions));
 
-// Handle OPTIONS explicitly for all routes (extra safety layer)
-app.options("*", cors(corsOptions));
 
 // ============================================
 // SECURITY MIDDLEWARE
