@@ -60,28 +60,31 @@ function isAllowedOrigin(origin) {
 }
 
 /**
- * CORS Configuration - SECURITY CRITICAL
+ * CORS Configuration - PRODUCTION FIX
  *
  * Rules:
- * 1. With credentials: true, NEVER return true or * in callback
- *    Must return the EXACT origin string or empty string
- * 2. No origin header (server-to-server): return "" (empty string)
- *    Browser requests always have Origin header; empty = non-browser
- * 3. Rejected origins: throw error. Error handler does NOT echo origin.
- *    This prevents information disclosure to unauthorized origins.
+ * 1. Browser requests (with Origin header): Return EXACT origin string
+ * 2. Non-browser requests (no Origin header): callback(null, false)
+ *    This allows the request but does NOT set CORS headers
+ * 3. Rejected origins: callback(error) - triggers error handler
  */
 const corsOptions = {
   origin: (origin, callback) => {
+    // No origin header = server-to-server, curl, Postman (NOT browser CORS)
+    // callback(null, false) = allow request, NO CORS headers set
     if (!origin) {
-      // No origin header = server-to-server, mobile apps, direct API access
-      logger.debug("CORS", "No origin header - allowing (server-to-server)");
-      return callback(null, "");
+      logger.debug("CORS", "No origin - allowing (non-browser)");
+      return callback(null, false);
     }
+
+    // Browser CORS request with Origin header
     if (isAllowedOrigin(origin)) {
       logger.debug("CORS", `Origin allowed: ${origin}`);
-      // Return the EXACT origin string - NEVER true or * with credentials
+      // Return the EXACT origin string - REQUIRED with credentials: true
+      // Returning true or * causes browser to reject with credentials
       return callback(null, origin);
     }
+
     logger.warn("CORS", `Origin rejected: ${origin}`);
     callback(new Error("Not allowed by CORS"));
   },
@@ -96,9 +99,31 @@ const corsOptions = {
   ],
   exposedHeaders: ["Authorization"],
   maxAge: 86400, // Preflight cache: 24 hours - eliminates repeated OPTIONS
+  preflightContinue: false, // CORS middleware handles OPTIONS, don't pass to next handler
+  optionsSuccessStatus: 204, // Use 204 for preflight success (some legacy browsers choke on 200)
 };
 
-// CORS must be FIRST middleware
+// ============================================
+// EXPLICIT OPTIONS PREFLIGHT HANDLER (Before CORS)
+// Ensures OPTIONS requests always get proper CORS headers
+// ============================================
+app.options("*", (req, res) => {
+  const origin = req.headers.origin;
+
+  // Only set CORS headers if origin is present and allowed
+  if (origin && isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain");
+    res.setHeader("Access-Control-Max-Age", "86400");
+    res.setHeader("Vary", "Origin");
+  }
+
+  res.status(204).end();
+});
+
+// CORS must be FIRST middleware (after explicit OPTIONS handler)
 app.use(cors(corsOptions));
 
 // ============================================
@@ -113,18 +138,32 @@ app.use(
 );
 
 // ============================================
-// REQUEST DEBUGGING (Development only)
+// REQUEST DEBUGGING (All environments for CORS troubleshooting)
 // ============================================
-if (!isProduction) {
-  app.use((req, res, next) => {
+app.use((req, res, next) => {
+  // Log all requests in production to help debug CORS issues
+  const origin = req.headers.origin;
+  const isCORS = !!origin;
+
+  if (isProduction) {
+    // In production, only log CORS-related requests to reduce noise
+    if (isCORS || req.method === "OPTIONS") {
+      logger.info("CORS-Request", `${req.method} ${req.originalUrl}`, {
+        origin: origin || "none",
+        host: req.headers.host,
+        isCORSEnabled: isAllowedOrigin(origin),
+      });
+    }
+  } else {
+    // In development, log all requests
     logger.debug("Request", `${req.method} ${req.originalUrl}`, {
-      origin: req.headers.origin,
+      origin: origin || "none",
       ip: req.ip,
       userAgent: req.headers["user-agent"]?.substring(0, 50),
     });
-    next();
-  });
-}
+  }
+  next();
+});
 
 // ============================================
 // GLOBAL RATE LIMITING (after security, before body parser)
