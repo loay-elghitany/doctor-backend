@@ -7,13 +7,15 @@ import {
 } from "../controllers/secretaryController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
 
 // Secretary account routes - only doctors can create secretaries
 router.post("/", universalAuth, requireRole(ROLES.DOCTOR), createSecretary);
-router.post("/login", loginSecretary);
+// Secretary login (rate limited, OPTIONS skipped automatically)
+router.post("/login", authLimiter, loginSecretary);
 
 // Secretary-specific operations
 router.get(

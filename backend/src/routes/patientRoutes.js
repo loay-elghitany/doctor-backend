@@ -6,6 +6,7 @@ import { getUnifiedPatients } from "../controllers/patientController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { enforceTenant } from "../middleware/enforceTenant.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
@@ -13,8 +14,8 @@ const router = express.Router();
 // /api/patients/register/:clinicSlug
 router.post("/register/:clinicSlug", registerPatient);
 
-// /api/patients/login
-router.post("/login", loginPatient);
+// /api/patients/login (rate limited, OPTIONS skipped automatically)
+router.post("/login", authLimiter, loginPatient);
 
 // /api/patients/me
 router.get("/me", universalAuth, requireRole(ROLES.PATIENT), getPatientProfile);

@@ -12,6 +12,7 @@ import Doctor from "../models/Doctor.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
 import { protectAdmin } from "../middleware/adminAuthMiddleware.js";
+import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
@@ -26,7 +27,8 @@ router.get("/", async (req, res) => {
   res.json(doctors);
 });
 
-router.post("/login", loginDoctor);
+// Login with rate limiting (OPTIONS automatically skipped by limiter)
+router.post("/login", authLimiter, loginDoctor);
 router.get("/public-profile", getDoctorPublicProfile);
 
 // Get doctor profile (protected)

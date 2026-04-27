@@ -3,6 +3,7 @@ import { tenantScope } from "../middleware/tenantScope.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { enforceTenant } from "../middleware/enforceTenant.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
+import { strictPostLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 import {
   createAppointment,
@@ -29,6 +30,7 @@ const router = express.Router();
  */
 router.post(
   "/",
+  strictPostLimiter, // Rate limit for POST
   universalAuth,
   requireRole(ROLES.PATIENT, ROLES.SECRETARY),
   enforceTenant,

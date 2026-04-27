@@ -7,6 +7,7 @@ import {
 } from "../controllers/prescriptionController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
+import { strictPostLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 
 const router = express.Router();
@@ -21,7 +22,7 @@ const router = express.Router();
  * Doctor-only endpoint
  * Body: { appointmentId, medications, diagnosis, notes }
  */
-router.post("/", universalAuth, requireRole(ROLES.DOCTOR), createPrescription);
+router.post("/", strictPostLimiter, universalAuth, requireRole(ROLES.DOCTOR), createPrescription);
 
 /**
  * GET /api/prescriptions/doctor
