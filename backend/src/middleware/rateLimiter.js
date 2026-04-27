@@ -7,6 +7,16 @@ const skipOptions = (req) => {
   return false;
 };
 
+// Helper to set CORS headers for rate limit responses
+const setCorsHeaders = (req, res) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Vary", "Origin");
+  }
+};
+
 /**
  * General API rate limiter - applies to all routes
  * NOTE: CORS middleware runs BEFORE this, so CORS headers are already set.
@@ -20,7 +30,7 @@ export const generalLimiter = rateLimit({
   skip: skipOptions,
   keyGenerator: (req) => req.ip,
   handler: (req, res) => {
-    // CORS headers already set by cors() middleware (runs first in chain)
+    setCorsHeaders(req, res);
     res.status(429).json({
       success: false,
       message: "Too many requests, please try again later",
@@ -31,7 +41,6 @@ export const generalLimiter = rateLimit({
 
 /**
  * Auth endpoints rate limiter - stricter, but skips OPTIONS
- * NOTE: OPTIONS requests are skipped to allow CORS preflight
  */
 export const authLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
@@ -41,6 +50,7 @@ export const authLimiter = rateLimit({
   skip: skipOptions,
   keyGenerator: (req) => req.ip,
   handler: (req, res) => {
+    setCorsHeaders(req, res);
     res.status(429).json({
       success: false,
       message: "Too many login attempts, please try again later",
@@ -60,6 +70,7 @@ export const strictPostLimiter = rateLimit({
   skip: skipOptions,
   keyGenerator: (req) => req.ip,
   handler: (req, res) => {
+    setCorsHeaders(req, res);
     res.status(429).json({
       success: false,
       message: "Too many requests, please try again later",

@@ -70,18 +70,14 @@ function isAllowedOrigin(origin) {
  */
 const corsOptions = {
   origin: (origin, callback) => {
-    // No origin header = server-to-server, curl, Postman (NOT browser CORS)
-    // callback(null, false) = allow request, NO CORS headers set
+    // No origin = server-to-server, curl, Postman - allow but no CORS headers needed
     if (!origin) {
-      logger.debug("CORS", "No origin - allowing (non-browser)");
       return callback(null, false);
     }
 
-    // Browser CORS request with Origin header
+    // Browser request with Origin header
     if (isAllowedOrigin(origin)) {
-      logger.debug("CORS", `Origin allowed: ${origin}`);
-      // Return the EXACT origin string - REQUIRED with credentials: true
-      // Returning true or * causes browser to reject with credentials
+      // MUST return exact origin string when credentials: true
       return callback(null, origin);
     }
 
