@@ -135,8 +135,6 @@ app.use(express.urlencoded({ extended: true }));
 // Note: Rate limiters now skip OPTIONS requests automatically
 // See middleware/rateLimiter.js for skip logic
 
-app.options("/api/*", cors(corsOptions));
-
 app.use("/api/patients", patientRoutes);
 app.use("/api/doctors", doctorRoutes);
 app.use("/api/secretaries", secretaryRoutes);
