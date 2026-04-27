@@ -104,26 +104,9 @@ const corsOptions = {
 };
 
 // ============================================
-// EXPLICIT OPTIONS PREFLIGHT HANDLER (Before CORS)
-// Ensures OPTIONS requests always get proper CORS headers
+// CORS MUST BE FIRST MIDDLEWARE
+// The cors package handles OPTIONS preflight automatically
 // ============================================
-app.options("*", (req, res) => {
-  const origin = req.headers.origin;
-
-  // Only set CORS headers if origin is present and allowed
-  if (origin && isAllowedOrigin(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, X-Subdomain");
-    res.setHeader("Access-Control-Max-Age", "86400");
-    res.setHeader("Vary", "Origin");
-  }
-
-  res.status(204).end();
-});
-
-// CORS must be FIRST middleware (after explicit OPTIONS handler)
 app.use(cors(corsOptions));
 
 // ============================================
