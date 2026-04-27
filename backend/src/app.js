@@ -63,7 +63,10 @@ const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, server-to-server)
     if (!origin) {
-      logger.debug("CORS", "Request with no origin allowed (mobile/server-to-server)");
+      logger.debug(
+        "CORS",
+        "Request with no origin allowed (mobile/server-to-server)",
+      );
       return callback(null, true);
     }
     if (isAllowedOrigin(origin)) {
@@ -88,7 +91,6 @@ const corsOptions = {
 
 // CORS must be FIRST middleware
 app.use(cors(corsOptions));
-
 
 // ============================================
 // SECURITY MIDDLEWARE
@@ -132,6 +134,8 @@ app.use(express.urlencoded({ extended: true }));
 // ============================================
 // Note: Rate limiters now skip OPTIONS requests automatically
 // See middleware/rateLimiter.js for skip logic
+
+app.options("/api/*", cors(corsOptions));
 
 app.use("/api/patients", patientRoutes);
 app.use("/api/doctors", doctorRoutes);
