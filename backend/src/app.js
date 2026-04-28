@@ -50,24 +50,41 @@ const isProduction = process.env.NODE_ENV === "production";
 const MAIN_DOMAIN = "mydoc90.com";
 
 // ============================================
-// CORS CONFIGURATION - PRODUCTION GRADE
+// CORS CONFIGURATION - FINAL
 // ============================================
+
+// 1. تعريف القائمة أولاً
 const allowedOrigins = isProduction
-  ? ["https://mydoc90.com", "https://www.mydoc90.com"]
+  ? [`https://${MAIN_DOMAIN}`, `https://www.${MAIN_DOMAIN}`]
   : [
-      "https://mydoc90.com",
-      "https://www.mydoc90.com",
+      `https://${MAIN_DOMAIN}`,
+      `https://www.${MAIN_DOMAIN}`,
       "http://localhost:5173",
       "http://localhost:3000",
     ];
 
+// 2. دالة الفحص (وبداخلها استثناء الـ Localhost)
 function isAllowedOrigin(origin) {
   if (!origin) return false;
   if (allowedOrigins.includes(origin)) return true;
-  // Allow any https://*.mydoc90.com subdomain
+
   try {
     const url = new URL(origin);
-    if (url.protocol === "https:" && url.hostname.endsWith(`.${MAIN_DOMAIN}`)) {
+
+    // تصريح المرور لبيئة التطوير
+    if (!isProduction) {
+      if (url.protocol === "http:" && url.hostname.endsWith(".localhost")) {
+        return true; 
+      }
+    }
+
+    // حماية بيئة الإنتاج
+    if (
+      url.protocol === "https:" &&
+      url.hostname.endsWith(`.${MAIN_DOMAIN}`) &&
+      url.hostname !== MAIN_DOMAIN &&
+      url.hostname !== `www.${MAIN_DOMAIN}`
+    ) {
       return true;
     }
   } catch {
@@ -76,30 +93,17 @@ function isAllowedOrigin(origin) {
   return false;
 }
 
-/**
- * CORS Configuration - PRODUCTION FIX
- *
- * Rules:
- * 1. Browser requests (with Origin header): Return EXACT origin string
- * 2. Non-browser requests (no Origin header): callback(null, false)
- *    This allows the request but does NOT set CORS headers
- * 3. Rejected origins: callback(error) - triggers error handler
- */
+// 3. إعدادات مكتبة CORS
 const corsOptions = {
   origin: (origin, callback) => {
-    // No origin = server-to-server (curl, Postman) - no CORS headers needed
     if (!origin) {
       return callback(null, false);
     }
 
-    // Validate and allow exact origin string
     if (isAllowedOrigin(origin)) {
-      // Return the EXACT origin - REQUIRED when credentials: true
-      // Never return true (causes *) or false (disables CORS)
-      return callback(null, origin);
+      return callback(null, origin); // إرجاع الدومين الفعلي لمنع خطأ النجمة *
     }
 
-    logger.warn("CORS", `Origin rejected: ${origin}`);
     callback(new Error("Not allowed by CORS"));
   },
   credentials: true,
@@ -112,15 +116,12 @@ const corsOptions = {
     "X-Subdomain",
   ],
   exposedHeaders: ["Authorization"],
-  maxAge: 86400, // Preflight cache: 24 hours - eliminates repeated OPTIONS
-  preflightContinue: false, // CORS middleware handles OPTIONS, don't pass to next handler
-  optionsSuccessStatus: 204, // Use 204 for preflight success (some legacy browsers choke on 200)
+  maxAge: 86400,
+  preflightContinue: false,
+  optionsSuccessStatus: 200,
 };
 
-// ============================================
-// CORS MUST BE FIRST MIDDLEWARE
-// The cors package handles OPTIONS preflight automatically
-// ============================================
+// 4. تفعيل الـ CORS
 app.use(cors(corsOptions));
 
 // ============================================
