@@ -408,12 +408,11 @@ export const updateDoctorClinicProfile = async (req, res) => {
 
 export const getDoctorPublicProfile = async (req, res) => {
   try {
-    const hostSlug = extractClinicSlugFromHost(req.headers.host);
-    const fallbackSlug =
+    // Read clinicSlug exclusively from query, params, or body
+    // Note: req.headers.host is NOT used because the API is on api.mydoc90.com
+    const rawSlug =
       req.query?.clinicSlug || req.params?.clinicSlug || req.body?.clinicSlug;
-    const clinicSlug = String(hostSlug || fallbackSlug || "")
-      .trim()
-      .toLowerCase();
+    const clinicSlug = String(rawSlug || "").trim().toLowerCase();
 
     if (!clinicSlug) {
       return res.status(400).json({
