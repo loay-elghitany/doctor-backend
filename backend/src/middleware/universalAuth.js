@@ -27,6 +27,7 @@ const normalizeUser = ({
   phoneNumber = null,
   role,
   doctorId = null,
+  clinicSlug = null,
 }) => ({
   _id,
   name,
@@ -34,6 +35,7 @@ const normalizeUser = ({
   role,
   doctorId,
   phoneNumber,
+  clinicSlug,
 });
 
 export const universalAuth = async (req, res, next) => {
@@ -111,6 +113,7 @@ export const universalAuth = async (req, res, next) => {
       phoneNumber: patient.phoneNumber || null,
       role: ROLES.PATIENT,
       doctorId: patient.doctorId || null,
+      clinicSlug: patient.clinicSlug || null,
     });
     req.patientId = patient._id;
   } else if (decoded.role === ROLES.DOCTOR) {
@@ -133,6 +136,7 @@ export const universalAuth = async (req, res, next) => {
       phoneNumber: doctor.phoneNumber || null,
       role: ROLES.DOCTOR,
       doctorId: doctor._id,
+      clinicSlug: doctor.clinicSlug,
     });
     req.doctor = doctor;
     req.tenantId = doctor._id;
@@ -174,6 +178,11 @@ export const universalAuth = async (req, res, next) => {
       phoneNumber: secretary.phoneNumber || null,
       role: ROLES.SECRETARY,
       doctorId: secretary.doctorId,
+      clinicSlug: doctor.clinicSlug, // Include clinicSlug from associated doctor
+    });
+    console.log("[universalAuth] Secretary normalized user:", {
+      id: user._id,
+      clinicSlug: user.clinicSlug,
     });
     req.secretary = secretary;
     req.doctor = doctor;

@@ -167,6 +167,13 @@ const doctorSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+
+    // Telegram Chat ID for push notifications
+    telegramChatId: {
+      type: String,
+      default: null,
+      sparse: true,
+    },
   },
   {
     timestamps: true,

@@ -14,6 +14,7 @@ import mongoose from "mongoose";
 import enforceOwnership from "../middleware/enforceOwnership.js";
 import logger from "../utils/logger.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
+import { createInAppNotification } from "./notificationController.js";
 
 const ALLOWED_MIMETYPES = ["image/jpeg", "image/png", "application/pdf"];
 
@@ -215,6 +216,34 @@ export const uploadMedicalFile = [
         });
       } catch (auditErr) {
         logger.error("uploadMedicalFile", "Audit log failed", auditErr);
+      }
+
+      // Send in-app notification to patient about file upload
+      try {
+        const doctor = await Doctor.findById(finalDoctorId);
+        const doctorName = doctor?.name || "الدكتور";
+
+        await createInAppNotification({
+          recipient: patient._id,
+          recipientRole: "patient",
+          senderRole: "system",
+          senderName: doctorName,
+          type: "NEW_MEDICAL_NOTE",
+          category: "patient",
+          title: "ملف طبي جديد",
+          message: `تم إضافة ملف طبي جديد إلى سجلك الطبي: ${originalName}. ${notes ? `الملاحظات: ${notes}` : ""}`,
+          link: `/medical-files`,
+          linkType: "patient",
+          patientId: patient._id,
+          doctorId: finalDoctorId,
+        });
+      } catch (notifErr) {
+        logger.error(
+          "uploadMedicalFile",
+          "Failed to send notification to patient",
+          notifErr,
+        );
+        // Don't fail upload if notification fails
       }
 
       res.json({ success: true, data: doc });

@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
+import { notifyStaffNewPatient } from "./notificationController.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 
 // Login المريض
@@ -337,17 +338,20 @@ export const registerPatient = async (req, res) => {
 
     const patient = await Patient.create(patientPayload);
 
-    // Send WhatsApp notifications for new patient registration (Scenario 1)
+    // Send WhatsApp + In-App notifications for new patient registration
     try {
       const doctorFromDb = await Doctor.findById(doctorId);
       const doctorName = doctorFromDb?.name || "الدكتور";
       const patientName = patient?.name || "المريض";
       const patientPhone = patient?.phoneNumber || "غير متوفر";
+      const resolvedClinicSlug =
+        resolution.clinicSlug || doctorFromDb?.clinicSlug;
 
       const doctorMessage = `مرحباً د. ${doctorName}، تم تسجيل مريض جديد في عيادتك 👤. الاسم: ${patientName} | 📞 الاتصال: ${patientPhone}.`;
       const patientMessage = `مرحباً ${patientName}، مرحباً بك في عيادة د. ${doctorName} 🏥. تم إنشاء حسابك بنجاح. يمكنك الآن حجز مواعيد وإدارة السجلات الطبية بسهولة.`;
 
-      const doctorNotification = createAndSendNotification({
+      // WhatsApp notifications (fire-and-forget)
+      const doctorWhatsApp = createAndSendNotification({
         recipientId: doctorId,
         recipientType: "Doctor",
         type: "patient_registered",
@@ -356,13 +360,10 @@ export const registerPatient = async (req, res) => {
         doctorId,
         patientId: patient._id,
         actionUrl: `/doctor/patients`,
-        metadata: {
-          patientName,
-          patientPhone,
-        },
+        metadata: { patientName, patientPhone },
       });
 
-      const patientNotification = createAndSendNotification({
+      const patientWhatsApp = createAndSendNotification({
         recipientId: patient._id,
         recipientType: "Patient",
         type: "patient_registered",
@@ -371,12 +372,19 @@ export const registerPatient = async (req, res) => {
         doctorId,
         patientId: patient._id,
         actionUrl: `/patient/appointments`,
-        metadata: {
-          doctorName,
-        },
+        metadata: { doctorName },
       });
 
-      await Promise.allSettled([doctorNotification, patientNotification]);
+      // Persistent In-App notification for clinic staff (doctor + secretaries)
+      // Notify doctor about new patient registration
+      const staffInApp = resolvedClinicSlug
+        ? notifyStaffNewPatient(resolvedClinicSlug, {
+            ...patient.toObject(),
+            doctorId,
+          })
+        : Promise.resolve();
+
+      await Promise.allSettled([doctorWhatsApp, patientWhatsApp, staffInApp]);
     } catch (notificationError) {
       logger.error(
         "[registerPatient] Failed to send notifications:",
@@ -477,20 +485,20 @@ export const getUnifiedPatients = async (req, res) => {
 
     const queryBuilders = {
       doctor: () => {
-        const query = { doctorId: req.tenantId };
+        const query = { clinicSlug: req.user.clinicSlug };
         logger.debug("getUnifiedPatients: DOCTOR query", { query });
         return query;
       },
       secretary: () => {
-        const query = { doctorId: req.tenantId };
+        const query = { clinicSlug: req.user.clinicSlug };
         logger.debug("getUnifiedPatients: SECRETARY query", {
           query,
-          tenantId: req.tenantId,
+          clinicSlug: req.user.clinicSlug,
         });
         return query;
       },
       patient: () => {
-        const query = { _id: actualUserId, doctorId: req.tenantId };
+        const query = { _id: actualUserId, clinicSlug: req.user.clinicSlug };
         logger.debug("getUnifiedPatients: PATIENT query", { query });
         return query;
       },

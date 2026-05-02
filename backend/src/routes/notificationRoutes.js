@@ -6,6 +6,12 @@ import {
   getNotificationStats,
   deleteNotification,
   getAllNotifications,
+  // In-app notification functions
+  getInAppNotifications,
+  getInAppUnreadCount,
+  markInAppNotificationAsRead,
+  markAllInAppNotificationsAsRead,
+  deleteInAppNotification,
 } from "../controllers/notificationController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
@@ -19,70 +25,47 @@ const router = express.Router();
  */
 
 /**
- * GET /api/notifications
- * Get notification history for logged-in user (patient or doctor)
- * Query params: status, type, limit, offset
- * Middleware: protect or protectDoctor (both patient and doctor access)
- * Returns: 200 with paginated notifications array
+ * =============================================================================
+ * IN-APP REAL-TIME NOTIFICATION ROUTES (Persistent)
+ * These MUST be defined BEFORE /:notificationId to avoid route conflicts
+ * =============================================================================
  */
-router.get(
-  "/",
-  universalAuth,
-  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
-  getNotificationHistory,
-);
 
 /**
- * GET /api/notifications/stats
- * Get notification statistics (count by status and type)
- * Middleware: protect or protectDoctor
- * Returns: 200 with stats object
+ * GET /api/notifications/inapp
+ * Get in-app notifications for logged-in user
+ * Query params: limit, skip, unreadOnly
  */
-router.get(
-  "/stats",
-  universalAuth,
-  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
-  getNotificationStats,
-);
+router.get("/inapp", universalAuth, getInAppNotifications);
 
 /**
- * GET /api/notifications/:notificationId
- * Get detailed information about a specific notification
- * Middleware: protect or protectDoctor with ownership verification
- * Returns: 200 with notification details or 404 if not found
+ * GET /api/notifications/inapp/unread-count
+ * Get unread count for current user
  */
-router.get(
-  "/:notificationId",
-  universalAuth,
-  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
-  getNotificationDetails,
-);
+router.get("/inapp/unread-count", universalAuth, getInAppUnreadCount);
 
 /**
- * PATCH /api/notifications/:notificationId/read
- * Mark notification as read
- * Middleware: protect or protectDoctor
- * Returns: 200 with updated notification or 404 if not found
+ * PATCH /api/notifications/inapp/mark-all-read
+ * Mark all notifications as read
+ * NOTE: Must be before /inapp/:id/read to avoid conflict
  */
 router.patch(
-  "/:notificationId/read",
+  "/inapp/mark-all-read",
   universalAuth,
-  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
-  markNotificationAsRead,
+  markAllInAppNotificationsAsRead,
 );
 
 /**
- * DELETE /api/notifications/:notificationId
- * Soft delete notification (won't be visible to user)
- * Middleware: protect or protectDoctor with ownership verification
- * Returns: 200 with deleted notification ID or 404 if not found
+ * PATCH /api/notifications/inapp/:id/read
+ * Mark single notification as read
  */
-router.delete(
-  "/:notificationId",
-  universalAuth,
-  requireRole(ROLES.PATIENT, ROLES.DOCTOR),
-  deleteNotification,
-);
+router.patch("/inapp/:id/read", universalAuth, markInAppNotificationAsRead);
+
+/**
+ * DELETE /api/notifications/inapp/:id
+ * Soft delete notification
+ */
+router.delete("/inapp/:id", universalAuth, deleteInAppNotification);
 
 /**
  * ADMIN ROUTES
@@ -92,10 +75,63 @@ router.delete(
 /**
  * GET /api/admin/notifications
  * Get all notifications across all users (for monitoring/debugging)
- * Query params: status, type, recipientType, limit, offset
- * Middleware: Admin authentication (to be implemented)
- * Returns: 200 with all notifications
  */
 router.get("/admin/all", getAllNotifications); // TODO: Add admin auth middleware
+
+/**
+ * GET /api/notifications
+ * Get notification history for logged-in user (patient or doctor)
+ * Query params: status, type, limit, offset
+ */
+router.get(
+  "/",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR, ROLES.SECRETARY),
+  getNotificationHistory,
+);
+
+/**
+ * GET /api/notifications/stats
+ * Get notification statistics (count by status and type)
+ */
+router.get(
+  "/stats",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR, ROLES.SECRETARY),
+  getNotificationStats,
+);
+
+/**
+ * GET /api/notifications/:notificationId
+ * Get detailed information about a specific notification
+ */
+router.get(
+  "/:notificationId",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR, ROLES.SECRETARY),
+  getNotificationDetails,
+);
+
+/**
+ * PATCH /api/notifications/:notificationId/read
+ * Mark notification as read
+ */
+router.patch(
+  "/:notificationId/read",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR, ROLES.SECRETARY),
+  markNotificationAsRead,
+);
+
+/**
+ * DELETE /api/notifications/:notificationId
+ * Soft delete notification (won't be visible to user)
+ */
+router.delete(
+  "/:notificationId",
+  universalAuth,
+  requireRole(ROLES.PATIENT, ROLES.DOCTOR, ROLES.SECRETARY),
+  deleteNotification,
+);
 
 export default router;

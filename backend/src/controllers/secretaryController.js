@@ -5,7 +5,6 @@ import jwt from "jsonwebtoken";
 import { createPatientRecord } from "./patientController.js";
 import logger from "../utils/logger.js";
 
-
 const generateSecretaryToken = (id, role, doctorId) => {
   return jwt.sign({ id, role, doctorId }, process.env.JWT_SECRET, {
     expiresIn: "30d",
@@ -116,7 +115,9 @@ export const loginSecretary = async (req, res) => {
     );
 
     // Get clinicSlug from the associated doctor
-    const doctor = await Doctor.findById(secretary.doctorId).select("clinicSlug");
+    const doctor = await Doctor.findById(secretary.doctorId).select(
+      "clinicSlug",
+    );
 
     res.json({
       success: true,
@@ -154,8 +155,12 @@ export const getSecretaryProfile = async (req, res) => {
 
     const sec = req.user;
 
-    // Get clinicSlug from the associated doctor
-    const doctor = await Doctor.findById(sec.doctorId).select("clinicSlug");
+    // clinicSlug is now available from universalAuth middleware (populated from doctor)
+    console.log("[SecretaryController] Returning secretary profile:", {
+      id: sec._id,
+      clinicSlug: sec.clinicSlug,
+      doctorId: sec.doctorId,
+    });
 
     res.json({
       success: true,
@@ -165,7 +170,7 @@ export const getSecretaryProfile = async (req, res) => {
         name: sec.name,
         email: sec.email,
         doctorId: sec.doctorId,
-        clinicSlug: doctor?.clinicSlug || null,
+        clinicSlug: sec.clinicSlug || null,
       },
     });
   } catch (error) {
@@ -180,16 +185,16 @@ export const getSecretaryProfile = async (req, res) => {
 
 export const getSecretaryPatients = async (req, res) => {
   try {
-    const doctorId = req.secretary?.doctorId || req.doctor?._id;
-    if (!doctorId) {
+    const clinicSlug = req.secretary?.clinicSlug || req.doctor?.clinicSlug;
+    if (!clinicSlug) {
       return res.status(401).json({
         success: false,
-        message: "Not authenticated",
+        message: "Not authenticated or clinic not found",
         data: null,
       });
     }
 
-    const patients = await Patient.find({ doctorId }).select(
+    const patients = await Patient.find({ clinicSlug }).select(
       "name email phoneNumber",
     );
 

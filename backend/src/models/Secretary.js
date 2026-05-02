@@ -2,7 +2,6 @@ import mongoose from "mongoose";
 import bcryptjs from "bcryptjs";
 import logger from "../utils/logger.js";
 
-
 const secretarySchema = new mongoose.Schema(
   {
     name: {
@@ -32,6 +31,13 @@ const secretarySchema = new mongoose.Schema(
       enum: ["secretary"],
       default: "secretary",
       immutable: true,
+    },
+
+    // Telegram Chat ID for push notifications
+    telegramChatId: {
+      type: String,
+      default: null,
+      sparse: true,
     },
   },
   {

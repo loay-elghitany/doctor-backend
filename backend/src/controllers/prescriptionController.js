@@ -1,8 +1,9 @@
 import Prescription from "../models/Prescription.js";
 import Appointment from "../models/Appointment.js";
 import Doctor from "../models/Doctor.js";
-
+import { createInAppNotification } from "./notificationController.js";
 import { createTimelineEvent } from "./doctorTimelineController.js";
+import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import auditService from "../services/auditService.js";
 import enforceOwnership from "../middleware/enforceOwnership.js";
 import logger from "../utils/logger.js";
@@ -145,25 +146,26 @@ export const createPrescription = async (req, res) => {
       // Don't fail prescription creation if timeline event fails
     }
 
-    // Send WhatsApp notification to patient about new prescription (Scenario 4)
+    // Send WhatsApp + In-App notifications to patient about new prescription
     try {
       const doctor = req.doctor;
       const patient = appointment.patientId;
       const patientName = patient?.name || "المريض";
       const doctorName = doctor?.name || "الدكتور";
-      const dateLabel = new Date().toLocaleDateString();
+      const dateLabel = new Date().toLocaleDateString("ar-EG");
 
       const medicationSummary = medications
         .map((med) => `${med.name} ${med.dosage || med.strength || ""}`)
         .join(", ");
 
-      const patientMessage = `مرحباً ${patientName}، نتمنى لك دوام الصحة والعافية 🩺. د. ${doctorName} قد أصدرك وصفة طبية جديدة بتاريخ ${dateLabel}. يمكنك الدخول إلى حسابك على المنصة لمشاهدة تفاصيل الوصفة والأدوية وتحميلها.`;
+      const patientMessage = `مرحباً ${patientName}، نتمنى لك دوام الصحة والعافية 🩺. د. ${doctorName} قد أصدر لك وصفة طبية جديدة بتاريخ ${dateLabel}. يمكنك الدخول إلى حسابك على المنصة لمشاهدة تفاصيل الوصفة والأدوية وتحميلها.`;
 
-      await createAndSendNotification({
-        recipientId: appointment.patientId._id, // Patient
+      // WhatsApp notification (fire-and-forget)
+      createAndSendNotification({
+        recipientId: appointment.patientId._id,
         recipientType: "Patient",
         type: "prescription_created",
-        title: "تم إصدار وصفة جديدة",
+        title: "روشتة طبية جديدة",
         message: patientMessage,
         prescriptionId: prescription._id,
         appointmentId,
@@ -177,6 +179,28 @@ export const createPrescription = async (req, res) => {
           doctorName,
           medicationSummary,
         },
+      }).catch((err) =>
+        logger.error("createPrescription", "WhatsApp notification failed", err),
+      );
+
+      // Persistent In-App notification (saved to DB + emitted via Socket)
+      await createInAppNotification({
+        recipient: appointment.patientId._id,
+        recipientRole: "patient",
+        recipientClinicSlug: appointment.patientId?.clinicSlug,
+        sender: req.doctor._id,
+        senderRole: "doctor",
+        senderName: doctorName,
+        type: "NEW_PRESCRIPTION",
+        category: "prescription",
+        title: "روشتة طبية جديدة",
+        message: "قام الطبيب بإضافة روشتة طبية جديدة لسجلك.",
+        link: `/prescriptions/${prescription._id}`,
+        linkType: "prescription",
+        prescriptionId: prescription._id,
+        appointmentId,
+        patientId: appointment.patientId._id,
+        doctorId: req.doctor._id,
       });
     } catch (notificationError) {
       logger.error(

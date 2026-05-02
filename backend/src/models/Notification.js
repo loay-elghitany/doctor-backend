@@ -36,6 +36,7 @@ const notificationSchema = new mongoose.Schema(
         "appointment_rejected",
         "appointment_proposed",
         "appointment_cancelled",
+        "appointment_completed",
         "prescription_created",
       ],
       required: true,

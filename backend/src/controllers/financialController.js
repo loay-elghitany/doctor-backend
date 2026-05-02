@@ -4,9 +4,11 @@ import Payment from "../models/Payment.js";
 import Patient from "../models/Patient.js";
 import { ROLES } from "../constants/roles.js";
 import logger from "../utils/logger.js";
-
+import { createInAppNotification } from "./notificationController.js";
 const toObjectId = (value) =>
-  mongoose.Types.ObjectId.isValid(value) ? new mongoose.Types.ObjectId(value) : null;
+  mongoose.Types.ObjectId.isValid(value)
+    ? new mongoose.Types.ObjectId(value)
+    : null;
 
 const resolvePatientIdForRead = (req) => {
   if (req.user?.role === ROLES.PATIENT) {
@@ -71,6 +73,24 @@ export const createTreatmentPlan = async (req, res) => {
       notes: notes || "",
     });
 
+    const patient = await Patient.findById(patientId).select("clinicSlug");
+    await createInAppNotification({
+      recipient: patientId,
+      recipientRole: "patient",
+      recipientClinicSlug: patient?.clinicSlug,
+      sender: doctorId,
+      senderRole: "doctor",
+      senderName: req.doctor?.name || "الدكتور",
+      type: "NEW_FINANCIAL_PLAN",
+      category: "financial",
+      title: "خطة مالية جديدة",
+      message: "تمت إضافة خطة مالية/فاتورة جديدة إلى حسابك.",
+      link: `/financial-plans/${plan._id}`,
+      linkType: "dashboard",
+      patientId,
+      doctorId,
+    });
+
     return res.status(201).json({
       success: true,
       message: "Treatment plan created successfully",
@@ -128,8 +148,12 @@ export const listTreatmentPlansByPatient = async (req, res) => {
       },
     ]);
 
-    const paidMap = new Map(paidByPlan.map((row) => [String(row._id), row.amountPaid]));
-    const data = plans.map((plan) => mapPlanSummary(plan, paidMap.get(String(plan._id))));
+    const paidMap = new Map(
+      paidByPlan.map((row) => [String(row._id), row.amountPaid]),
+    );
+    const data = plans.map((plan) =>
+      mapPlanSummary(plan, paidMap.get(String(plan._id))),
+    );
 
     return res.json({
       success: true,
@@ -188,7 +212,10 @@ export const deleteTreatmentPlan = async (req, res) => {
     const doctorId = req.tenantId;
     const { planId } = req.params;
 
-    const plan = await TreatmentPlan.findOneAndDelete({ _id: planId, doctorId });
+    const plan = await TreatmentPlan.findOneAndDelete({
+      _id: planId,
+      doctorId,
+    });
     if (!plan) {
       return res.status(404).json({
         success: false,
@@ -217,7 +244,8 @@ export const deleteTreatmentPlan = async (req, res) => {
 export const createPayment = async (req, res) => {
   try {
     const doctorId = req.tenantId;
-    const { planId, patientId, amountPaid, date, paymentMethod } = req.body || {};
+    const { planId, patientId, amountPaid, date, paymentMethod } =
+      req.body || {};
 
     // Debug: Log received payload
     logger.info("createPayment - Received payload:", {
@@ -231,7 +259,14 @@ export const createPayment = async (req, res) => {
       userRole: req.user?.role,
     });
 
-    if (!planId || !patientId || amountPaid === undefined || amountPaid === null || Number(amountPaid) <= 0 || !paymentMethod) {
+    if (
+      !planId ||
+      !patientId ||
+      amountPaid === undefined ||
+      amountPaid === null ||
+      Number(amountPaid) <= 0 ||
+      !paymentMethod
+    ) {
       logger.warn("createPayment - Validation failed:", {
         planId: !!planId,
         patientId: !!patientId,
@@ -241,12 +276,17 @@ export const createPayment = async (req, res) => {
       });
       return res.status(400).json({
         success: false,
-        message: "planId, patientId, amountPaid (must be > 0), and paymentMethod are required",
+        message:
+          "planId, patientId, amountPaid (must be > 0), and paymentMethod are required",
         data: null,
       });
     }
 
-    const plan = await TreatmentPlan.findOne({ _id: planId, doctorId, patientId });
+    const plan = await TreatmentPlan.findOne({
+      _id: planId,
+      doctorId,
+      patientId,
+    });
     if (!plan) {
       return res.status(404).json({
         success: false,
@@ -255,7 +295,8 @@ export const createPayment = async (req, res) => {
       });
     }
 
-    const receivedByModel = req.user.role === ROLES.SECRETARY ? "Secretary" : "Doctor";
+    const receivedByModel =
+      req.user.role === ROLES.SECRETARY ? "Secretary" : "Doctor";
     const payment = await Payment.create({
       planId,
       doctorId,
@@ -363,7 +404,10 @@ export const deletePayment = async (req, res) => {
     const doctorId = req.tenantId;
     const { paymentId } = req.params;
 
-    const payment = await Payment.findOneAndDelete({ _id: paymentId, doctorId });
+    const payment = await Payment.findOneAndDelete({
+      _id: paymentId,
+      doctorId,
+    });
     if (!payment) {
       return res.status(404).json({
         success: false,
@@ -416,7 +460,10 @@ export const getPatientFinancialSummary = async (req, res) => {
     const paidByPlan = new Map();
     payments.forEach((payment) => {
       const key = String(payment.planId);
-      paidByPlan.set(key, Number(paidByPlan.get(key) || 0) + Number(payment.amountPaid || 0));
+      paidByPlan.set(
+        key,
+        Number(paidByPlan.get(key) || 0) + Number(payment.amountPaid || 0),
+      );
     });
 
     const plansSummary = plans.map((plan) =>

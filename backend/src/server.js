@@ -1,7 +1,10 @@
 import dotenv from "dotenv";
+import http from "http";
 import connectDB from "./config/db.js";
 import app from "./app.js";
 import logger from "./utils/logger.js";
+import { initializeSocket } from "./utils/socketManager.js";
+import { initializeTelegramBotListener } from "./services/telegramBotListener.js";
 
 dotenv.config();
 
@@ -36,6 +39,16 @@ if (databaseUri && isProduction) {
 connectDB(databaseUri);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+// Create HTTP server from Express app
+const httpServer = http.createServer(app);
+
+// Initialize Socket.io
+initializeSocket(httpServer);
+
+// Initialize Telegram deep-link listener
+initializeTelegramBotListener();
+
+httpServer.listen(PORT, () => {
   logger.info("Server", `Server running on port ${PORT}`);
 });

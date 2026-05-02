@@ -412,7 +412,9 @@ export const getDoctorPublicProfile = async (req, res) => {
     // Note: req.headers.host is NOT used because the API is on api.mydoc90.com
     const rawSlug =
       req.query?.clinicSlug || req.params?.clinicSlug || req.body?.clinicSlug;
-    const clinicSlug = String(rawSlug || "").trim().toLowerCase();
+    const clinicSlug = String(rawSlug || "")
+      .trim()
+      .toLowerCase();
 
     if (!clinicSlug) {
       return res.status(400).json({
@@ -426,7 +428,7 @@ export const getDoctorPublicProfile = async (req, res) => {
       clinicSlug,
       isActive: true,
     }).select(
-      "name clinicSlug bio specialty profilePicture coverImage clinicPhotos socialLinks landingPageSettings",
+      "name clinicSlug bio specialty profilePicture coverImage clinicPhotos socialLinks landingPageSettings phoneNumber",
     );
 
     if (!doctor) {
@@ -448,11 +450,6 @@ export const getDoctorPublicProfile = async (req, res) => {
         profilePicture: doctor.profilePicture || "",
         coverImage: doctor.coverImage || "",
         clinicPhotos: doctor.clinicPhotos || [],
-        socialLinks: doctor.socialLinks || {
-          facebook: "",
-          instagram: "",
-          twitter: "",
-        },
         landingPageSettings: doctor.landingPageSettings || {
           themeColor: "#2563eb",
           welcomeMessage: "",
@@ -460,6 +457,12 @@ export const getDoctorPublicProfile = async (req, res) => {
         clinicInfo: {
           clinicSlug: doctor.clinicSlug,
           doctorName: doctor.name,
+        },
+        publicContactInfo: {
+          facebook: doctor.socialLinks?.facebook || "",
+          instagram: doctor.socialLinks?.instagram || "",
+          twitter: doctor.socialLinks?.twitter || "",
+          whatsApp: doctor.phoneNumber || "",
         },
       },
     });
@@ -493,93 +496,73 @@ export const getDoctorPatients = async (req, res) => {
     }
 
     // Import here to avoid circular dependencies
-    import("../models/Patient.js").then(async (module) => {
-      const Patient = module.default;
-      import("../models/Appointment.js").then(async (aptModule) => {
-        const Appointment = aptModule.default;
+    const { default: Patient } = await import("../models/Patient.js");
+    const { default: Appointment } = await import("../models/Appointment.js");
 
-        try {
-          // Find all patients that have appointments with this doctor
-          // Group by patient to avoid duplicates
-          const appointmentMatch = { doctorId: doctorId };
-          logger.debug("getDoctorPatients: aggregation query", {
-            role,
-            appointmentMatch,
-          });
+    // Step A: Fetch all patients belonging to this doctor/clinic first
+    const patientQuery = {
+      doctorId,
+      clinicSlug: req.doctor?.clinicSlug,
+    };
+    logger.debug("getDoctorPatients: patient query", {
+      role,
+      patientQuery,
+    });
 
-          const appointmentsWithPatients = await Appointment.aggregate([
-            {
-              $match: appointmentMatch,
-            },
-            {
-              $group: {
-                _id: "$patientId",
-                totalAppointments: { $sum: 1 },
-                lastAppointmentDate: { $max: "$date" },
-                statuses: { $push: "$status" },
-              },
-            },
-            {
-              $sort: { lastAppointmentDate: -1 },
-            },
-          ]);
+    const patients =
+      await Patient.find(patientQuery).select("name email phone");
 
-          if (
-            !appointmentsWithPatients ||
-            appointmentsWithPatients.length === 0
-          ) {
-            return res.json({
-              success: true,
-              message: "No patients found",
-              data: [],
-            });
-          }
+    // Step B: Aggregate appointment statistics for this doctor
+    const appointmentMatch = { doctorId };
+    logger.debug("getDoctorPatients: aggregation query", {
+      role,
+      appointmentMatch,
+    });
 
-          // Get patient details
-          const patientIds = appointmentsWithPatients.map((apt) => apt._id);
-          const patientQuery = {
-            _id: { $in: patientIds },
-            doctorId: doctorId,
-          };
-          logger.debug("getDoctorPatients: patient query", {
-            role,
-            patientQuery,
-          });
+    const appointmentsWithPatients = await Appointment.aggregate([
+      {
+        $match: appointmentMatch,
+      },
+      {
+        $group: {
+          _id: "$patientId",
+          totalAppointments: { $sum: 1 },
+          lastAppointmentDate: { $max: "$date" },
+          statuses: { $push: "$status" },
+        },
+      },
+      {
+        $sort: { lastAppointmentDate: -1 },
+      },
+    ]);
 
-          const patients =
-            await Patient.find(patientQuery).select("name email phone");
+    const appointmentStatsByPatient = appointmentsWithPatients.reduce(
+      (acc, appointmentData) => {
+        acc[String(appointmentData._id)] = appointmentData;
+        return acc;
+      },
+      {},
+    );
 
-          // Combine patient data with appointment summaries
-          const patientsWithSummary = patients.map((patient) => {
-            const appointmentData = appointmentsWithPatients.find((apt) =>
-              apt._id.equals(patient._id),
-            );
+    // Step C: Map over all patients and merge appointment stats
+    const patientsWithSummary = patients.map((patient) => {
+      const appointmentData = appointmentStatsByPatient[String(patient._id)];
 
-            return {
-              id: patient._id,
-              name: patient.name,
-              email: patient.email,
-              phone: patient.phone || null,
-              totalAppointments: appointmentData?.totalAppointments || 0,
-              lastAppointmentDate: appointmentData?.lastAppointmentDate || null,
-              statusSummary: appointmentData?.statuses || [],
-            };
-          });
+      return {
+        id: patient._id,
+        name: patient.name,
+        email: patient.email,
+        phone: patient.phone || null,
+        totalAppointments: appointmentData?.totalAppointments || 0,
+        lastAppointmentDate: appointmentData?.lastAppointmentDate || null,
+        statusSummary: appointmentData?.statuses || [],
+      };
+    });
 
-          res.json({
-            success: true,
-            message: "Patients retrieved successfully",
-            data: patientsWithSummary,
-          });
-        } catch (error) {
-          logger.error("Error in getDoctorPatients aggregation:", error);
-          res.status(500).json({
-            success: false,
-            message: "Server error retrieving patients",
-            data: null,
-          });
-        }
-      });
+    res.json({
+      success: true,
+      message: "Patients retrieved successfully",
+      data: patientsWithSummary,
     });
   } catch (error) {
     logger.error("UnexpectedError", error);

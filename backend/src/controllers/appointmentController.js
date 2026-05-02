@@ -11,6 +11,15 @@ import logger from "../utils/logger.js";
 import { errorResponse, successResponse } from "../utils/responseHelpers.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
 import { canPerformAction } from "../utils/appointmentPermissions.js";
+import {
+  emitNewAppointmentToStaff,
+  emitAppointmentConfirmationToPatient,
+} from "../utils/socketManager.js";
+import {
+  createInAppNotification,
+  notifyStaffNewAppointment,
+  notifyPatientAppointmentStatus,
+} from "./notificationController.js";
 
 /**
  * Validate time slot format (HH:MM)
@@ -348,6 +357,138 @@ export const createAppointment = async (req, res) => {
       });
 
       await Promise.allSettled([doctorNotification, patientNotification]);
+
+      // Emit real-time Socket.io notifications
+      const formattedDate = parsedDate.toLocaleDateString("ar-SA");
+
+      // Log clinicSlug details for debugging room name mismatch
+      const targetRoom = `clinic_${doctorFromDb.clinicSlug}_staff`;
+      console.log(
+        "[Socket:Controller] ============================================",
+      );
+      console.log("[Socket:Controller] PREPARING TO EMIT NOTIFICATION");
+      console.log("[Socket:Controller] - doctorFromDb._id:", tenantId);
+      console.log(
+        "[Socket:Controller] - doctorFromDb.name:",
+        doctorFromDb.name,
+      );
+      console.log(
+        "[Socket:Controller] - doctorFromDb.clinicSlug:",
+        doctorFromDb.clinicSlug,
+      );
+      console.log("[Socket:Controller] - COMPUTED TARGET ROOM:", targetRoom);
+      console.log("[Socket:Controller] - patientName:", patientName);
+      console.log("[Socket:Controller] - patientId:", patientId.toString());
+      console.log("[Socket:Controller] - formattedDate:", formattedDate);
+
+      if (role === "secretary") {
+        // Notify Doctor: Secretary created and confirmed appointment
+        console.log(
+          "[Socket:Controller] Notifying doctor about secretary-created appointment...",
+        );
+        await createInAppNotification({
+          recipient: tenantId,
+          recipientRole: "doctor",
+          recipientClinicSlug: doctorFromDb.clinicSlug,
+          sender: userId,
+          senderRole: "secretary",
+          senderName: req.user?.name || "السكرتيرة",
+          type: "APPOINTMENT_CONFIRMED",
+          category: "appointment",
+          title: "حجز موعد من السكرتارية",
+          message: `قامت السكرتيرة بحجز وتأكيد موعد للمريض ${patientName} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+          link: `/appointments/${appointment._id}`,
+          linkType: "appointment",
+          appointmentId: appointment._id,
+          patientId: patientId,
+          doctorId: tenantId,
+        });
+
+        // Notify Patient: Appointment confirmed by secretary
+        console.log(
+          "[Socket:Controller] Notifying patient about confirmed appointment...",
+        );
+        await createInAppNotification({
+          recipient: patientId,
+          recipientRole: "patient",
+          recipientClinicSlug: doctorFromDb.clinicSlug,
+          sender: tenantId,
+          senderRole: "doctor",
+          senderName: doctorFromDb.name,
+          type: "APPOINTMENT_CONFIRMED",
+          category: "appointment",
+          title: "موعد جديد مؤكد",
+          message: `تم حجز موعد مؤكد لك في عيادة د. ${doctorFromDb.name} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+          link: `/appointments/${appointment._id}`,
+          linkType: "appointment",
+          appointmentId: appointment._id,
+          patientId: patientId,
+          doctorId: tenantId,
+        });
+      } else if (role === "patient") {
+        // Notify Staff about new appointment request (wrapped in try-catch)
+        try {
+          console.log(
+            "[Socket:Controller] Calling emitNewAppointmentToStaff with clinicSlug:",
+            doctorFromDb.clinicSlug,
+          );
+          emitNewAppointmentToStaff(
+            doctorFromDb.clinicSlug,
+            patientName,
+            formattedDate,
+          );
+
+          // Create persistent notification for staff
+          console.log(
+            "[Socket:Controller] Creating persistent notification for staff...",
+          );
+          await notifyStaffNewAppointment(
+            doctorFromDb.clinicSlug,
+            appointment,
+            patient,
+          );
+        } catch (staffNotificationError) {
+          logger.error(
+            "[createAppointment] Failed to notify staff:",
+            staffNotificationError.message,
+          );
+          // Don't fail the appointment creation if staff notification fails
+        }
+
+        // Notify Patient: Appointment request received and is under review
+        try {
+          console.log(
+            "[Socket:Controller] Notifying patient of appointment request receipt...",
+          );
+          await createInAppNotification({
+            recipient: patientId,
+            recipientRole: "patient",
+            recipientClinicSlug: doctorFromDb.clinicSlug,
+            sender: tenantId,
+            senderRole: "doctor",
+            senderName: doctorFromDb.name,
+            type: "NEW_APPOINTMENT",
+            category: "appointment",
+            title: "تم استلام طلبك",
+            message: "جاري مراجعة طلب حجز الموعد من قبل العيادة.",
+            link: `/appointments/${appointment._id}`,
+            linkType: "appointment",
+            appointmentId: appointment._id,
+            patientId: patientId,
+            doctorId: tenantId,
+          });
+        } catch (patientNotificationError) {
+          logger.error(
+            "[createAppointment] Failed to notify patient of request receipt:",
+            patientNotificationError.message,
+          );
+          // Don't fail the appointment creation if patient notification fails
+        }
+      }
+
+      console.log(
+        "[Socket:Controller] ============================================",
+      );
     } catch (notificationError) {
       logger.error(
         "[createAppointment] Failed to send notifications:",

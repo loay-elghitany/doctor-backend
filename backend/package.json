@@ -6,9 +6,10 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand",
-    "test:ci": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand --silent",
-    "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watchAll",
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./jest.config.js --runInBand",
+    "test:ci": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./jest.config.js --runInBand --silent",
+    "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./jest.config.js --watchAll",
+    "test:integration": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --config ./jest.config.js --runInBand",
     "seed": "node src/seedTestData.js",
     "seed:doctor": "node src/seedDoctor.js",
     "test:migrate": "node src/migrations/test_migrate_timeSlot_integration.js",
@@ -31,6 +32,8 @@
     "helmet": "^7.0.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.1.5",
+    "node-telegram-bot-api": "^0.67.0",
+    "socket.io": "^4.7.0",
     "twilio": "^5.13.0",
     "uuid": "^13.0.0"
   },
