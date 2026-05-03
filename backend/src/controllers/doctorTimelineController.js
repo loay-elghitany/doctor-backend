@@ -4,8 +4,6 @@ import Patient from "../models/Patient.js";
 import Doctor from "../models/Doctor.js";
 import logger from "../utils/logger.js";
 
-
-
 /**
  * Get complete medical timeline for a specific patient
  * Doctor-only endpoint - shows all events for patient
@@ -55,12 +53,17 @@ export const getDoctorPatientTimeline = async (req, res) => {
 
     // Verify doctor has appointments with this patient (multi-tenant isolation)
     // OR can be extended to check if doctor is in patient's doctor list
+    // تحقق إذا كان الدكتور لديه مواعيد مع المريض، أو إذا كان المريض مسجل أساساً باسم هذا الدكتور
     const patientAppointments = await Appointment.countDocuments({
       patientId,
       doctorId,
     });
 
-    if (patientAppointments === 0) {
+    // هنسمح للدكتور يدخل لو المريض بتاعه، أو لو في بينهم موعد سابق
+    const isPatientAssignedToDoctor =
+      patient.doctorId && patient.doctorId.toString() === doctorId.toString();
+
+    if (patientAppointments === 0 && !isPatientAssignedToDoctor) {
       logger.debug(
         "getDoctorPatientTimeline",
         "Doctor not authorized for patient",
@@ -153,12 +156,17 @@ export const addDoctorNote = async (req, res) => {
     }
 
     // Verify doctor has appointments with this patient
+    // Verify doctor has appointments with this patient or owns the patient profile
     const patientAppointments = await Appointment.countDocuments({
       patientId,
       doctorId,
     });
 
-    if (patientAppointments === 0) {
+    // نتحقق إذا كان المريض مسجل في عيادة هذا الدكتور
+    const isPatientAssignedToDoctor =
+      patient.doctorId && patient.doctorId.toString() === doctorId.toString();
+
+    if (patientAppointments === 0 && !isPatientAssignedToDoctor) {
       logger.debug("addDoctorNote", "Doctor not authorized for patient", {
         patientId,
         doctorId,
@@ -242,7 +250,11 @@ export const createTimelineEvent = async ({
 
     return event;
   } catch (error) {
-    logger.error("createTimelineEvent", "Failed to create timeline event", error);
+    logger.error(
+      "createTimelineEvent",
+      "Failed to create timeline event",
+      error,
+    );
     // Don't throw - timeline events are auxiliary and shouldn't break main flow
     return null;
   }
@@ -282,7 +294,11 @@ export const updateTimelineEventStatus = async ({
 
     return result;
   } catch (error) {
-    logger.error("updateTimelineEventStatus", "Failed to update timeline", error);
+    logger.error(
+      "updateTimelineEventStatus",
+      "Failed to update timeline",
+      error,
+    );
     return null;
   }
 };

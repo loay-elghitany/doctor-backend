@@ -1,7 +1,11 @@
 import Prescription from "../models/Prescription.js";
 import Appointment from "../models/Appointment.js";
 import Doctor from "../models/Doctor.js";
-import { createInAppNotification } from "./notificationController.js";
+import {
+  createInAppNotification,
+  notifyPatientNewPrescription,
+  notifyStaffNewPrescription,
+} from "./notificationController.js";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import auditService from "../services/auditService.js";
@@ -183,25 +187,19 @@ export const createPrescription = async (req, res) => {
         logger.error("createPrescription", "WhatsApp notification failed", err),
       );
 
-      // Persistent In-App notification (saved to DB + emitted via Socket)
-      await createInAppNotification({
-        recipient: appointment.patientId._id,
-        recipientRole: "patient",
-        recipientClinicSlug: appointment.patientId?.clinicSlug,
-        sender: req.doctor._id,
-        senderRole: "doctor",
-        senderName: doctorName,
-        type: "NEW_PRESCRIPTION",
-        category: "prescription",
-        title: "روشتة طبية جديدة",
-        message: "قام الطبيب بإضافة روشتة طبية جديدة لسجلك.",
-        link: `/prescriptions/${prescription._id}`,
-        linkType: "prescription",
-        prescriptionId: prescription._id,
-        appointmentId,
-        patientId: appointment.patientId._id,
-        doctorId: req.doctor._id,
-      });
+      await Promise.allSettled([
+        notifyPatientNewPrescription(
+          appointment.patientId._id,
+          prescription,
+          doctorName,
+        ),
+        notifyStaffNewPrescription(
+          doctor.clinicSlug,
+          prescription,
+          appointment.patientId,
+          doctor,
+        ),
+      ]);
     } catch (notificationError) {
       logger.error(
         "createPrescription",

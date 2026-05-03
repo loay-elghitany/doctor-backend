@@ -702,20 +702,108 @@ export const deleteInAppNotification = async (req, res) => {
  * @param {Object} appointment - Appointment data
  * @param {Object} patient - Patient data
  */
+const getClinicSecretaries = async (clinicSlug) => {
+  if (!clinicSlug) {
+    return [];
+  }
+  return Secretary.find({ clinicSlug }).select("_id").lean();
+};
+
+const notifyClinicStaff = async ({
+  clinicSlug,
+  doctorId,
+  notifyDoctor = false,
+  notifySecretaries = false,
+  sender,
+  senderRole,
+  senderName,
+  type,
+  category,
+  title,
+  message,
+  link,
+  linkType,
+  appointmentId,
+  patientId,
+  prescriptionId,
+}) => {
+  const recipients = [];
+  if (notifyDoctor && doctorId) {
+    recipients.push({ recipient: doctorId, recipientRole: "doctor" });
+  }
+
+  if (notifySecretaries && clinicSlug) {
+    const secretaries = await getClinicSecretaries(clinicSlug);
+    for (const secretary of secretaries) {
+      recipients.push({ recipient: secretary._id, recipientRole: "secretary" });
+    }
+  }
+
+  if (recipients.length === 0) {
+    return;
+  }
+
+  const createPromises = recipients.map(({ recipient, recipientRole }) =>
+    createInAppNotification({
+      recipient,
+      recipientRole,
+      recipientClinicSlug: null,
+      sender,
+      senderRole,
+      senderName,
+      type,
+      category,
+      title,
+      message,
+      link,
+      linkType,
+      appointmentId,
+      patientId,
+      doctorId,
+      prescriptionId,
+      isRead: false,
+    }),
+  );
+
+  const settled = await Promise.allSettled(createPromises);
+  const firstFulfilled = settled.find(
+    (result) => result.status === "fulfilled",
+  );
+  if (clinicSlug && firstFulfilled?.status === "fulfilled") {
+    emitNotificationToStaff(clinicSlug, {
+      id: firstFulfilled.value._id,
+      type,
+      title,
+      message,
+      timestamp: new Date().toISOString(),
+      link,
+    });
+  }
+};
+
+const getStaffNotificationFlags = (senderRole) => {
+  if (senderRole === "doctor") {
+    return { notifyDoctor: false, notifySecretaries: true };
+  }
+  if (senderRole === "secretary") {
+    return { notifyDoctor: true, notifySecretaries: false };
+  }
+  return { notifyDoctor: true, notifySecretaries: true };
+};
+
 export const notifyStaffNewAppointment = async (
   clinicSlug,
   appointment,
   patient,
 ) => {
   const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
-
-  // Find the doctor to get their ID for notification
   const doctorId = appointment.doctorId;
 
-  await createInAppNotification({
-    recipient: doctorId,
-    recipientRole: "doctor",
-    recipientClinicSlug: clinicSlug,
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId,
+    notifyDoctor: true,
+    notifySecretaries: true,
     sender: patient._id,
     senderRole: "patient",
     senderName: patient.name,
@@ -727,17 +815,227 @@ export const notifyStaffNewAppointment = async (
     linkType: "appointment",
     appointmentId: appointment._id,
     patientId: patient._id,
-    doctorId: doctorId,
+    doctorId,
   });
 };
 
-/**
- * Notify patient about appointment status change
- * @param {String} patientId - Patient ID
- * @param {String} status - New status (accepted, rejected, etc.)
- * @param {Object} appointment - Appointment data
- * @param {String} doctorName - Doctor's name
- */
+export const notifyStaffAppointmentConfirmed = async (
+  clinicSlug,
+  appointment,
+  patient,
+  senderRole,
+  senderId,
+  senderName,
+) => {
+  const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
+  const doctorId = appointment.doctorId;
+  const flags = getStaffNotificationFlags(senderRole);
+  const roleLabel =
+    senderRole === "secretary"
+      ? "السكرتيرة"
+      : senderRole === "doctor"
+        ? "الدكتور"
+        : "المريض";
+
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: senderId,
+    senderRole,
+    senderName,
+    type: "APPOINTMENT_CONFIRMED",
+    category: "appointment",
+    title: "تم تأكيد الموعد",
+    message: `${roleLabel} ${senderName} قام بتأكيد موعد المريض ${patient.name} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+    link: `/appointments/${appointment._id}`,
+    linkType: "appointment",
+    appointmentId: appointment._id,
+    patientId: patient._id,
+    doctorId,
+  });
+};
+
+export const notifyStaffAppointmentCancelled = async (
+  clinicSlug,
+  appointment,
+  patient,
+  senderRole,
+  senderId,
+  senderName,
+) => {
+  const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
+  const doctorId = appointment.doctorId;
+  const flags = getStaffNotificationFlags(senderRole);
+  const roleLabel =
+    senderRole === "secretary"
+      ? "السكرتيرة"
+      : senderRole === "doctor"
+        ? "الدكتور"
+        : "المريض";
+
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: senderId,
+    senderRole,
+    senderName,
+    type: "APPOINTMENT_CANCELLED",
+    category: "appointment",
+    title: "تم إلغاء الموعد",
+    message: `${roleLabel} ${senderName} قام بإلغاء موعد المريض ${patient.name} المقرر يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+    link: `/appointments/${appointment._id}`,
+    linkType: "appointment",
+    appointmentId: appointment._id,
+    patientId: patient._id,
+    doctorId,
+  });
+};
+
+export const notifyStaffAppointmentProposed = async (
+  clinicSlug,
+  appointment,
+  patient,
+  senderRole,
+  senderId,
+  senderName,
+) => {
+  const doctorId = appointment.doctorId;
+  const flags = getStaffNotificationFlags(senderRole);
+  const roleLabel =
+    senderRole === "secretary"
+      ? "السكرتيرة"
+      : senderRole === "doctor"
+        ? "الدكتور"
+        : "المريض";
+
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: senderId,
+    senderRole,
+    senderName,
+    type: "APPOINTMENT_PROPOSED",
+    category: "appointment",
+    title: "تم اقتراح موعد جديد",
+    message: `${roleLabel} ${senderName} اقترح مواعيد جديدة للمريض ${patient.name} لمراجعة جدول الموعد.`,
+    link: `/appointments/${appointment._id}`,
+    linkType: "appointment",
+    appointmentId: appointment._id,
+    patientId: patient._id,
+    doctorId,
+  });
+};
+
+export const notifyStaffNewPrescription = async (
+  clinicSlug,
+  prescription,
+  patient,
+  doctor,
+) => {
+  const doctorName = doctor.name || "الدكتور";
+  const message = `د. ${doctorName} أضاف روشتة جديدة للمريض ${patient.name}.`;
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId: doctor._id,
+    notifyDoctor: false,
+    notifySecretaries: true,
+    sender: doctor._id,
+    senderRole: "doctor",
+    senderName: doctorName,
+    type: "NEW_PRESCRIPTION",
+    category: "prescription",
+    title: "روشتة جديدة",
+    message,
+    link: `/prescriptions/${prescription._id}`,
+    linkType: "prescription",
+    appointmentId: prescription.appointmentId,
+    patientId: patient._id,
+    doctorId: doctor._id,
+    prescriptionId: prescription._id,
+  });
+};
+
+export const notifyStaffFinancialPlanCreated = async (
+  clinicSlug,
+  plan,
+  patient,
+  doctor,
+  senderRole = "doctor",
+  senderId,
+  senderName,
+) => {
+  const doctorName = doctor.name || "الدكتور";
+  const flags = getStaffNotificationFlags(senderRole);
+  const effectiveSenderId = senderId || doctor._id;
+  const effectiveSenderName = senderName || doctorName;
+
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId: doctor._id,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: effectiveSenderId,
+    senderRole,
+    senderName: effectiveSenderName,
+    type: "NEW_FINANCIAL_PLAN",
+    category: "financial",
+    title: "خطة مالية جديدة",
+    message: `تم إنشاء خطة مالية جديدة للمريض ${patient.name}.`,
+    link: `/financial-plans/${plan._id}`,
+    linkType: "dashboard",
+    patientId: patient._id,
+    doctorId: doctor._id,
+  });
+};
+
+export const notifyStaffPaymentRecorded = async (
+  clinicSlug,
+  patient,
+  amount,
+  planId,
+  senderRole = "patient",
+  senderId,
+  senderName,
+) => {
+  const doctor = await Doctor.findById(
+    patient.doctorId || patient.assignedDoctorId,
+  );
+  if (!doctor) {
+    logger.warn("[notifyStaffPaymentRecorded] Doctor not found for patient", {
+      patientId: patient._id,
+    });
+    return;
+  }
+  const doctorId = doctor._id;
+  const flags = getStaffNotificationFlags(senderRole);
+  const effectiveSenderId = senderId || patient._id;
+  const effectiveSenderName = senderName || patient.name;
+
+  await notifyClinicStaff({
+    clinicSlug: clinicSlug || doctor.clinicSlug,
+    doctorId,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: effectiveSenderId,
+    senderRole,
+    senderName: effectiveSenderName,
+    type: "PAYMENT_RECORDED",
+    category: "payment",
+    title: "تم تسجيل دفعة",
+    message: `${effectiveSenderName} سجل دفعة بقيمة ${amount} ج.م. للمريض ${patient.name}.`,
+    link: `/financials/${planId}`,
+    linkType: "dashboard",
+    patientId: patient._id,
+    doctorId,
+  });
+};
+
 export const notifyPatientAppointmentStatus = async (
   patientId,
   status,
@@ -754,6 +1052,11 @@ export const notifyPatientAppointmentStatus = async (
       title: "تم رفض الموعد",
       message: `تم رفض موعدك مع د. ${doctorName}. يرجى حجز موعد آخر.`,
       type: "APPOINTMENT_REJECTED",
+    },
+    cancelled: {
+      title: "تم إلغاء الموعد",
+      message: `تم إلغاء موعدك مع د. ${doctorName}. يرجى التواصل مع العيادة.`,
+      type: "APPOINTMENT_CANCELLED",
     },
     rescheduled: {
       title: "تم إعادة جدولة الموعد",
@@ -808,12 +1111,11 @@ export const notifyStaffNewPatient = async (clinicSlug, patient) => {
 
     const resolvedClinicSlug = clinicSlug || doctor.clinicSlug;
 
-    // Emit to clinic staff room so ALL doctors and secretaries in the clinic are notified
-    const notification = {
-      recipient: clinicSlug,
-      recipientRole: "clinic_staff",
-      recipientClinicSlug: clinicSlug,
-
+    await notifyClinicStaff({
+      clinicSlug: resolvedClinicSlug,
+      doctorId: doctor._id,
+      notifyDoctor: true,
+      notifySecretaries: true,
       sender: patient._id,
       senderRole: "patient",
       senderName: patient.name,
@@ -821,32 +1123,10 @@ export const notifyStaffNewPatient = async (clinicSlug, patient) => {
       category: "patient",
       title: "مريض جديد",
       message: `مريض جديد: قام ${patient.name} بإنشاء حساب جديد. الهاتف: ${patient.phoneNumber || "لا يوجد رقم"}`,
-
-      // 2. خلينا الرابط محايد، الفرونت-أند هياخده ويحط قبله /doctor أو /secretary حسب اللي فاتح
       link: `/patients/${patient._id}`,
       linkType: "patient",
-
       patientId: patient._id,
-      doctorId: patient.doctorId,
-      isRead: false,
-    };
-    // Save notification for primary doctor
-    await InAppNotification.create({
-      ...notification,
-      recipient: patient.doctorId || patient.assignedDoctorId,
-      recipientRole: "doctor",
-    });
-
-    // Emit to clinic-wide staff room for real-time updates
-    emitNotificationToStaff(resolvedClinicSlug, {
-      id: notification._id,
-      type: notification.type,
-      title: notification.title,
-      message: notification.message,
-      timestamp: new Date().toISOString(),
-      link: notification.link,
-      patientName: patient.name,
-      patientPhone: patient.phoneNumber,
+      doctorId: doctor._id,
     });
 
     logger.debug("[notifyStaffNewPatient] Notification sent to clinic staff", {
@@ -888,4 +1168,94 @@ export const notifyPatientNewPrescription = async (
     prescriptionId: prescription._id,
     patientId: patientId,
   });
+};
+
+export const notifyPatientFinancialPlan = async (
+  patientId,
+  plan,
+  doctorName,
+  clinicSlug,
+) => {
+  await createInAppNotification({
+    recipient: patientId,
+    recipientRole: "patient",
+    recipientClinicSlug: clinicSlug,
+    sender: plan.doctorId,
+    senderRole: "doctor",
+    senderName: doctorName,
+    type: "NEW_FINANCIAL_PLAN",
+    category: "financial",
+    title: "خطة مالية جديدة",
+    message: `قام د. ${doctorName} بإضافة خطة مالية جديدة لك. يرجى مراجعة التفاصيل.`,
+    link: `/financial-plans/${plan._id}`,
+    linkType: "dashboard",
+    patientId,
+    doctorId: plan.doctorId,
+  });
+};
+
+/**
+ * Notify clinic staff (doctor + secretaries) about a new payment
+ * @param {String} clinicSlug - The clinic identifier
+ * @param {Object} patient - Patient data
+ * @param {Number} amount - Amount paid
+ * @param {String} planId - The ID of the financial plan
+ */
+export const notifyStaffNewPayment = async (
+  clinicSlug,
+  patient,
+  amount,
+  planId,
+) => {
+  try {
+    const doctor = await Doctor.findById(
+      patient.doctorId || patient.assignedDoctorId,
+    );
+
+    if (!doctor || !doctor.clinicSlug) {
+      logger.warn("[notifyStaffNewPayment] Doctor or clinicSlug not found");
+      return;
+    }
+
+    const resolvedClinicSlug = clinicSlug || doctor.clinicSlug;
+
+    // 1. Create the notification object
+    const notificationData = {
+      recipient: resolvedClinicSlug, // Temporary for clinic-wide, updated below
+      recipientRole: "clinic_staff",
+      recipientClinicSlug: resolvedClinicSlug,
+      sender: patient._id,
+      senderRole: "patient",
+      senderName: patient.name,
+      type: "NEW_PAYMENT_MADE", // <--- اسم الإشعار الجديد
+      category: "payment", // <--- تصنيف الإشعار الجديد
+      title: "دفعة مالية جديدة",
+      message: `قام المريض ${patient.name} بدفع مبلغ ${amount} ج.م.`,
+      link: `/financials/${planId}`, // اللينك اللي هيروحله لما يدوس
+      linkType: "dashboard",
+      patientId: patient._id,
+      doctorId: doctor._id,
+    };
+
+    // 2. Save it to Database for the primary doctor
+    const savedNotification = await InAppNotification.create({
+      ...notificationData,
+      recipient: doctor._id,
+      recipientRole: "doctor",
+    });
+
+    // 3. Emit real-time notification to the entire clinic staff via Socket.io
+    emitNotificationToStaff(resolvedClinicSlug, {
+      id: savedNotification._id,
+      type: notificationData.type,
+      title: notificationData.title,
+      message: notificationData.message,
+      timestamp: new Date().toISOString(),
+      link: notificationData.link,
+    });
+
+    logger.debug("[notifyStaffNewPayment] Notification sent to staff");
+  } catch (error) {
+    logger.error("[notifyStaffNewPayment] Failed:", error.message);
+  }
 };

@@ -61,6 +61,7 @@ const inAppNotificationSchema = new mongoose.Schema(
         "PRESCRIPTION_UPDATED",
         // Financial related
         "NEW_FINANCIAL_PLAN",
+        "NEW_PAYMENT_MADE",
         // System
         "SYSTEM_NOTIFICATION",
       ],
@@ -160,9 +161,22 @@ const inAppNotificationSchema = new mongoose.Schema(
 );
 
 // Compound indexes for efficient queries
-inAppNotificationSchema.index({ recipient: 1, recipientRole: 1, isRead: 1, createdAt: -1 });
-inAppNotificationSchema.index({ recipient: 1, recipientRole: 1, createdAt: -1 });
-inAppNotificationSchema.index({ recipientClinicSlug: 1, type: 1, createdAt: -1 });
+inAppNotificationSchema.index({
+  recipient: 1,
+  recipientRole: 1,
+  isRead: 1,
+  createdAt: -1,
+});
+inAppNotificationSchema.index({
+  recipient: 1,
+  recipientRole: 1,
+  createdAt: -1,
+});
+inAppNotificationSchema.index({
+  recipientClinicSlug: 1,
+  type: 1,
+  createdAt: -1,
+});
 inAppNotificationSchema.index({ isRead: 1, createdAt: -1 });
 inAppNotificationSchema.index({ type: 1, createdAt: -1 });
 inAppNotificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL index
@@ -175,7 +189,10 @@ inAppNotificationSchema.methods.markAsRead = async function () {
 };
 
 // Static method to get unread count
-inAppNotificationSchema.statics.getUnreadCount = async function (recipientId, recipientRole) {
+inAppNotificationSchema.statics.getUnreadCount = async function (
+  recipientId,
+  recipientRole,
+) {
   return this.countDocuments({
     recipient: recipientId,
     recipientRole: recipientRole,
@@ -189,7 +206,7 @@ inAppNotificationSchema.statics.getRecent = async function (
   recipientId,
   recipientRole,
   limit = 20,
-  skip = 0
+  skip = 0,
 ) {
   return this.find({
     recipient: recipientId,
@@ -203,7 +220,10 @@ inAppNotificationSchema.statics.getRecent = async function (
 };
 
 // Static method to mark all as read
-inAppNotificationSchema.statics.markAllAsRead = async function (recipientId, recipientRole) {
+inAppNotificationSchema.statics.markAllAsRead = async function (
+  recipientId,
+  recipientRole,
+) {
   return this.updateMany(
     {
       recipient: recipientId,
@@ -213,7 +233,7 @@ inAppNotificationSchema.statics.markAllAsRead = async function (recipientId, rec
     {
       isRead: true,
       readAt: new Date(),
-    }
+    },
   );
 };
 

@@ -4,7 +4,12 @@ import Payment from "../models/Payment.js";
 import Patient from "../models/Patient.js";
 import { ROLES } from "../constants/roles.js";
 import logger from "../utils/logger.js";
-import { createInAppNotification } from "./notificationController.js";
+import {
+  createInAppNotification,
+  notifyPatientFinancialPlan,
+  notifyStaffFinancialPlanCreated,
+  notifyStaffPaymentRecorded,
+} from "./notificationController.js";
 const toObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(value)
     ? new mongoose.Types.ObjectId(value)
@@ -74,22 +79,23 @@ export const createTreatmentPlan = async (req, res) => {
     });
 
     const patient = await Patient.findById(patientId).select("clinicSlug");
-    await createInAppNotification({
-      recipient: patientId,
-      recipientRole: "patient",
-      recipientClinicSlug: patient?.clinicSlug,
-      sender: doctorId,
-      senderRole: "doctor",
-      senderName: req.doctor?.name || "الدكتور",
-      type: "NEW_FINANCIAL_PLAN",
-      category: "financial",
-      title: "خطة مالية جديدة",
-      message: "تمت إضافة خطة مالية/فاتورة جديدة إلى حسابك.",
-      link: `/financial-plans/${plan._id}`,
-      linkType: "dashboard",
-      patientId,
-      doctorId,
-    });
+    await Promise.allSettled([
+      notifyPatientFinancialPlan(
+        patientId,
+        plan,
+        req.doctor?.name || "الدكتور",
+        patient?.clinicSlug,
+      ),
+      notifyStaffFinancialPlanCreated(
+        patient?.clinicSlug,
+        plan,
+        patient,
+        req.doctor,
+        "doctor",
+        req.doctor?._id,
+        req.doctor?.name,
+      ),
+    ]);
 
     return res.status(201).json({
       success: true,
@@ -307,6 +313,25 @@ export const createPayment = async (req, res) => {
       date: date || undefined,
       paymentMethod,
     });
+
+    try {
+      const patient = await Patient.findById(patientId);
+      await notifyStaffPaymentRecorded(
+        patient?.clinicSlug || req.user?.clinicSlug,
+        patient,
+        Number(amountPaid),
+        planId,
+        req.user?.role || "doctor",
+        req.user?._id,
+        req.user?.name,
+      );
+    } catch (notificationError) {
+      logger.error(
+        "createPayment",
+        "Failed to notify staff of recorded payment",
+        notificationError,
+      );
+    }
 
     return res.status(201).json({
       success: true,

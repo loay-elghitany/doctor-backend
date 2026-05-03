@@ -37,6 +37,7 @@ const notificationPreferencesSchema = new mongoose.Schema(
         appointment_proposed: { type: Boolean, default: true },
         prescription_created: { type: Boolean, default: true },
         new_financial_plan: { type: Boolean, default: true },
+        new_payment_made: { type: Boolean, default: true },
       },
 
       // Quiet hours (optional)

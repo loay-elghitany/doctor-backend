@@ -3,6 +3,7 @@ import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
 import jwt from "jsonwebtoken";
 import { createPatientRecord } from "./patientController.js";
+import { notifyStaffNewPatient } from "./notificationController.js";
 import logger from "../utils/logger.js";
 
 const generateSecretaryToken = (id, role, doctorId) => {
@@ -267,6 +268,15 @@ export const createPatientUnderDoctor = async (req, res) => {
       phoneNumber,
       doctorId,
     });
+
+    try {
+      await notifyStaffNewPatient(clinicSlug, patient);
+    } catch (notificationError) {
+      logger.error(
+        "[createPatientUnderDoctor] Failed to notify staff of new patient:",
+        notificationError.message,
+      );
+    }
 
     res.status(201).json({
       success: true,

@@ -7,6 +7,9 @@ import { createAndSendNotification } from "../services/whatsappNotificationServi
 import {
   createInAppNotification,
   notifyPatientAppointmentStatus,
+  notifyStaffAppointmentConfirmed,
+  notifyStaffAppointmentCancelled,
+  notifyStaffAppointmentProposed,
 } from "./notificationController.js";
 import logger from "../utils/logger.js";
 import { canPerformAction } from "../utils/appointmentPermissions.js";
@@ -560,19 +563,30 @@ export const updateAppointmentStatus = async (req, res) => {
         let notificationType = "appointment_updated";
         let notificationTitle = "Appointment Status Updated";
         let notificationMessage = `Your appointment status has been updated to ${status}`;
+        let patientNotificationStatus = null;
 
         const isConfirmedOrScheduled =
           status === "confirmed" || status === APPOINTMENT_STATUS.SCHEDULED;
 
         if (isConfirmedOrScheduled) {
+          patientNotificationStatus = "accepted";
           notificationType = "appointment_confirmed";
           notificationTitle = "تم تأكيد الموعد";
           const dateLabel = appointment.date.toLocaleDateString("ar-EG");
           notificationMessage = `مرحباً ${patientName}، خبر رائع! تم تأكيد موعدك مع د. ${doctorName} ✅. ⏰ نتطلع لرؤيتك في ${dateLabel} الساعة ${appointment.timeSlot}. نتمنى لك دوام الصحة.`;
         } else if (status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
+          patientNotificationStatus = "rescheduled";
           notificationType = "appointment_proposed";
           notificationTitle = "تم اقتراح مواعيد بديلة";
           notificationMessage = `مرحباً ${patientName}، الطبيب غير متاح في الوقت المطلوب، ولكن تم اقتراح مواعيد بديلة 🔄. يرجى تسجيل الدخول إلى حسابك واختيار الوقت المناسب لتأكيد الحجز.`;
+        } else if (
+          status === APPOINTMENT_STATUS.REJECTED ||
+          status === APPOINTMENT_STATUS.CANCELLED
+        ) {
+          patientNotificationStatus = "cancelled";
+          notificationType = "appointment_cancelled";
+          notificationTitle = "تم إلغاء الموعد";
+          notificationMessage = `مرحباً ${patientName}، نعتذر لإبلاغك أن موعدك مع د. ${doctorName} لم يتم تأكيده. يرجى مراجعة التفاصيل أو التواصل مع العيادة.`;
         }
 
         // WhatsApp notification (fire-and-forget)
@@ -599,63 +613,46 @@ export const updateAppointmentStatus = async (req, res) => {
           ),
         );
 
-        if (isConfirmedOrScheduled) {
-          await createInAppNotification({
-            recipient: appointment.patientId,
-            recipientRole: "patient",
-            recipientClinicSlug: req.doctor?.clinicSlug,
-            sender: req.doctor._id,
-            senderRole: "doctor",
-            senderName: doctorName,
-            type: "APPOINTMENT_ACCEPTED",
-            category: "appointment",
-            title: "تأكيد الموعد",
-            message: "تم تأكيد موعدك بنجاح.",
-            link: `/appointments/${appointment._id}`,
-            linkType: "appointment",
-            appointmentId: appointment._id,
-            patientId: appointment.patientId,
-            doctorId: appointment.doctorId,
-          });
-        } else if (status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED) {
-          await createInAppNotification({
-            recipient: appointment.patientId,
-            recipientRole: "patient",
-            recipientClinicSlug: req.doctor?.clinicSlug,
-            sender: req.doctor._id,
-            senderRole: "doctor",
-            senderName: doctorName,
-            type: "APPOINTMENT_RESCHEDULED",
-            category: "appointment",
-            title: "اقتراح موعد جديد",
-            message: "قام الطبيب باقتراح موعد جديد لزيارتك، يرجى المراجعة.",
-            link: `/appointments/${appointment._id}`,
-            linkType: "appointment",
-            appointmentId: appointment._id,
-            patientId: appointment.patientId,
-            doctorId: appointment.doctorId,
-          });
-        } else if (
-          status === APPOINTMENT_STATUS.REJECTED ||
-          status === APPOINTMENT_STATUS.CANCELLED
-        ) {
-          await createInAppNotification({
-            recipient: appointment.patientId,
-            recipientRole: "patient",
-            recipientClinicSlug: req.doctor?.clinicSlug,
-            sender: req.doctor._id,
-            senderRole: "doctor",
-            senderName: doctorName,
-            type: "APPOINTMENT_REJECTED",
-            category: "appointment",
-            title: "إلغاء الموعد",
-            message: "نعتذر، تم إلغاء موعدك. يرجى التواصل مع العيادة.",
-            link: `/appointments/${appointment._id}`,
-            linkType: "appointment",
-            appointmentId: appointment._id,
-            patientId: appointment.patientId,
-            doctorId: appointment.doctorId,
-          });
+        if (patientNotificationStatus) {
+          await notifyPatientAppointmentStatus(
+            appointment.patientId,
+            patientNotificationStatus,
+            appointment,
+            doctorName,
+          );
+
+          const actorRole = req.user?.role || "doctor";
+          const actorId = req.user?._id || req.doctor._id;
+          const actorName = req.user?.name || doctorName;
+
+          if (patientNotificationStatus === "accepted") {
+            await notifyStaffAppointmentConfirmed(
+              req.doctor?.clinicSlug,
+              appointment,
+              patient,
+              actorRole,
+              actorId,
+              actorName,
+            );
+          } else if (patientNotificationStatus === "rescheduled") {
+            await notifyStaffAppointmentProposed(
+              req.doctor?.clinicSlug,
+              appointment,
+              patient,
+              actorRole,
+              actorId,
+              actorName,
+            );
+          } else if (patientNotificationStatus === "cancelled") {
+            await notifyStaffAppointmentCancelled(
+              req.doctor?.clinicSlug,
+              appointment,
+              patient,
+              actorRole,
+              actorId,
+              actorName,
+            );
+          }
         }
       } catch (notificationError) {
         logger.error(
@@ -663,63 +660,6 @@ export const updateAppointmentStatus = async (req, res) => {
           notificationError.message,
         );
         // Don't fail the update if notification fails
-      }
-    }
-
-    // Notify doctor if secretary performed the action
-    if (req.user && req.user.role === "secretary" && appointment.doctorId) {
-      try {
-        const secretary = req.user;
-        const secretaryName = secretary.name || "السكرتيرة";
-        const patient = await Patient.findById(appointment.patientId);
-        const patientName = patient?.name || "المريض";
-
-        const isAccepted = isConfirmedOrScheduled;
-        const isRescheduled = status === APPOINTMENT_STATUS.RESCHEDULE_PROPOSED;
-        const isCancelled =
-          status === APPOINTMENT_STATUS.CANCELLED ||
-          status === APPOINTMENT_STATUS.REJECTED;
-
-        let doctorNotificationType = "APPOINTMENT_UPDATED";
-        let doctorNotificationTitle = "تحديث موعد";
-        let doctorNotificationMessage = `قامت السكرتيرة بتأكيد موعد المريض ${patientName}.`;
-
-        if (isRescheduled) {
-          doctorNotificationType = "APPOINTMENT_RESCHEDULED";
-          doctorNotificationTitle = "إعادة جدولة";
-          doctorNotificationMessage = `قامت السكرتيرة باقتراح موعد جديد للمريض ${patientName}.`;
-        } else if (isCancelled) {
-          doctorNotificationType = "APPOINTMENT_CANCELLED";
-          doctorNotificationTitle = "إلغاء موعد";
-          doctorNotificationMessage = `قامت السكرتيرة بإلغاء موعد المريض ${patientName}.`;
-        } else if (isAccepted) {
-          doctorNotificationType = "APPOINTMENT_ACCEPTED";
-          doctorNotificationTitle = "تحديث موعد";
-          doctorNotificationMessage = `قامت السكرتيرة بتأكيد موعد المريض ${patientName}.`;
-        }
-
-        await createInAppNotification({
-          recipient: appointment.doctorId,
-          recipientRole: "doctor",
-          recipientClinicSlug: req.doctor?.clinicSlug,
-          sender: secretary._id,
-          senderRole: "secretary",
-          senderName: secretaryName,
-          type: doctorNotificationType,
-          category: "appointment",
-          title: doctorNotificationTitle,
-          message: doctorNotificationMessage,
-          link: `/appointments/${appointment._id}`,
-          linkType: "appointment",
-          appointmentId: appointment._id,
-          patientId: appointment.patientId,
-          doctorId: appointment.doctorId,
-        });
-      } catch (secretaryNotifError) {
-        logger.error(
-          "[updateAppointmentStatus] Failed to notify doctor of secretary action:",
-          secretaryNotifError.message,
-        );
       }
     }
 
@@ -1011,44 +951,21 @@ export const proposeTimes = async (req, res) => {
         ),
       );
 
-      // Persistent In-App notification for rescheduling
-      await createInAppNotification({
-        recipient: appointment.patientId,
-        recipientRole: "patient",
-        recipientClinicSlug: req.doctor?.clinicSlug,
-        sender: req.doctor._id,
-        senderRole: "doctor",
-        senderName: doctorName,
-        type: "APPOINTMENT_RESCHEDULED",
-        category: "appointment",
-        title: "اقتراح موعد جديد",
-        message: "قام الطبيب باقتراح موعد جديد لزيارتك، يرجى المراجعة.",
-        link: `/appointments/${appointment._id}`,
-        linkType: "appointment",
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-      });
+      await notifyPatientAppointmentStatus(
+        appointment.patientId,
+        "rescheduled",
+        appointment,
+        doctorName,
+      );
 
-      if (req.user?.role === "secretary") {
-        await createInAppNotification({
-          recipient: appointment.doctorId,
-          recipientRole: "doctor",
-          recipientClinicSlug: req.doctor?.clinicSlug,
-          sender: req.user._id,
-          senderRole: "secretary",
-          senderName: req.user.name || "السكرتيرة",
-          type: "APPOINTMENT_RESCHEDULED",
-          category: "appointment",
-          title: "إعادة جدولة",
-          message: `قامت السكرتيرة باقتراح موعد جديد للمريض ${patientName}.`,
-          link: `/appointments/${appointment._id}`,
-          linkType: "appointment",
-          appointmentId: appointment._id,
-          patientId: appointment.patientId,
-          doctorId: appointment.doctorId,
-        });
-      }
+      await notifyStaffAppointmentProposed(
+        req.doctor?.clinicSlug,
+        appointment,
+        patient,
+        req.user?.role || "doctor",
+        req.user?._id || req.doctor._id,
+        req.user?.name || doctorName,
+      );
     } catch (notificationError) {
       logger.error(
         "[proposeTimes] Failed to send notification:",
@@ -1194,44 +1111,21 @@ export const cancelAppointment = async (req, res) => {
         ),
       );
 
-      // Persistent In-App notification for cancellation
-      await createInAppNotification({
-        recipient: appointment.patientId,
-        recipientRole: "patient",
-        recipientClinicSlug: req.doctor?.clinicSlug,
-        sender: req.doctor._id,
-        senderRole: "doctor",
-        senderName: doctorName,
-        type: "APPOINTMENT_REJECTED",
-        category: "appointment",
-        title: "إلغاء الموعد",
-        message: "نعتذر، تم إلغاء موعدك. يرجى التواصل مع العيادة.",
-        link: `/appointments/${appointment._id}`,
-        linkType: "appointment",
-        appointmentId: appointment._id,
-        patientId: appointment.patientId,
-        doctorId: appointment.doctorId,
-      });
+      await notifyPatientAppointmentStatus(
+        appointment.patientId,
+        "cancelled",
+        appointment,
+        doctorName,
+      );
 
-      if (req.user?.role === "secretary") {
-        await createInAppNotification({
-          recipient: appointment.doctorId,
-          recipientRole: "doctor",
-          recipientClinicSlug: req.doctor?.clinicSlug,
-          sender: req.user._id,
-          senderRole: "secretary",
-          senderName: req.user.name || "السكرتيرة",
-          type: "APPOINTMENT_CANCELLED",
-          category: "appointment",
-          title: "إلغاء موعد",
-          message: `قامت السكرتيرة بإلغاء موعد المريض ${patientName}.`,
-          link: `/appointments/${appointment._id}`,
-          linkType: "appointment",
-          appointmentId: appointment._id,
-          patientId: appointment.patientId,
-          doctorId: appointment.doctorId,
-        });
-      }
+      await notifyStaffAppointmentCancelled(
+        req.doctor?.clinicSlug,
+        appointment,
+        patient,
+        req.user?.role || "doctor",
+        req.user?._id || req.doctor._id,
+        req.user?.name || doctorName,
+      );
     } catch (notificationError) {
       logger.error(
         "[cancelAppointment] Failed to send notification:",

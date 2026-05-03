@@ -45,25 +45,35 @@ export const createAppointment = async ({
   });
 };
 
+const extractToken = (response, role) => {
+  const token = response.body?.data?.token;
+  if (!token || response.status !== 200) {
+    throw new Error(
+      `Login failed for ${role}: status=${response.status}, success=${response.body?.success}, message=${response.body?.message}`,
+    );
+  }
+  return token;
+};
+
 export const loginDoctor = async ({ email, password }) => {
   const response = await request
     .post("/api/doctors/login")
     .send({ email, password });
-  return response.body.data?.token;
+  return extractToken(response, "doctor");
 };
 
 export const loginPatient = async ({ email, password }) => {
   const response = await request
     .post("/api/patients/login")
     .send({ email, password });
-  return response.body.data?.token;
+  return extractToken(response, "patient");
 };
 
 export const loginSecretary = async ({ email, password }) => {
   const response = await request
     .post("/api/secretaries/login")
     .send({ email, password });
-  return response.body.data?.token;
+  return extractToken(response, "secretary");
 };
 
 export const setupAuthFixtures = async () => {
@@ -132,6 +142,18 @@ export const setupAuthFixtures = async () => {
     email: secretaryA.email,
     password: "secretaryApass",
   });
+
+  if (
+    !doctorAToken ||
+    !doctorBToken ||
+    !patientA1Token ||
+    !patientB1Token ||
+    !secretaryAToken
+  ) {
+    throw new Error(
+      "setupAuthFixtures failed: one or more fixture login tokens were not returned.",
+    );
+  }
 
   return {
     doctorA,

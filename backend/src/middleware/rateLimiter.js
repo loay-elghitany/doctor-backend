@@ -1,7 +1,8 @@
 import rateLimit from "express-rate-limit";
 
-// Skip function: always allow OPTIONS (CORS preflight) and health checks
+// Skip function: always allow OPTIONS (CORS preflight) and health checks, and skip in test environment
 const skipOptions = (req) => {
+  if (process.env.NODE_ENV === "test") return true;
   if (req.method === "OPTIONS") return true;
   if (req.method === "HEAD") return true;
   return false;

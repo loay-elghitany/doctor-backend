@@ -18,6 +18,8 @@ import {
 import {
   createInAppNotification,
   notifyStaffNewAppointment,
+  notifyStaffAppointmentConfirmed,
+  notifyStaffAppointmentCancelled,
   notifyPatientAppointmentStatus,
 } from "./notificationController.js";
 
@@ -849,6 +851,22 @@ export const chooseTime = [
         });
 
         await Promise.allSettled([doctorNotification, patientNotification]);
+
+        try {
+          await notifyStaffAppointmentConfirmed(
+            doctorFromDb.clinicSlug,
+            appointment,
+            patient,
+            "patient",
+            appointment.patientId,
+            patientName,
+          );
+        } catch (staffNotificationError) {
+          logger.error(
+            "[chooseTime] Failed to notify staff about confirmed appointment:",
+            staffNotificationError.message,
+          );
+        }
       } catch (notificationError) {
         logger.error(
           "[chooseTime] Failed to send notifications:",
@@ -972,6 +990,29 @@ export const cancelAppointment = [
               timeSlot: appointment.timeSlot,
             },
           });
+
+          try {
+            await notifyPatientAppointmentStatus(
+              appointment.patientId,
+              "cancelled",
+              appointment,
+              doctorName,
+            );
+            await notifyStaffAppointmentCancelled(
+              doctorFromDb.clinicSlug,
+              appointment,
+              patient,
+              req.user?.role || "doctor",
+              req.user?._id || req.doctor._id,
+              req.user?.name || doctorName,
+            );
+          } catch (staffNotificationError) {
+            logger.error(
+              "[cancelAppointment] Failed to send staff notifications:",
+              staffNotificationError.message,
+            );
+            // Don't fail cancellation if staff notification fails
+          }
         } catch (notificationError) {
           logger.error(
             "[cancelAppointment] Failed to send notification:",
@@ -1068,6 +1109,22 @@ export const cancelAppointment = [
               cancelledBy: "patient",
             },
           });
+
+          try {
+            await notifyStaffAppointmentCancelled(
+              req.doctor?.clinicSlug,
+              appointment,
+              { _id: appointment.patientId, name: patientName },
+              "patient",
+              appointment.patientId,
+              patientName,
+            );
+          } catch (staffNotificationError) {
+            logger.error(
+              "[cancelAppointment] Failed to notify staff of patient cancellation:",
+              staffNotificationError.message,
+            );
+          }
         } catch (notificationError) {
           logger.error(
             "[cancelAppointment] Failed to send notification:",
