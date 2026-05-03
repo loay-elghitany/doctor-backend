@@ -24,7 +24,7 @@ export const sendTelegramMessage = async (chatId, text) => {
   }
 
   // Guard: Ensure chatId exists
-  if (!chatId || chatId.trim() === "") {
+  if (!chatId || String(chatId).trim() === "") {
     logger.debug(
       "[telegramService] No chatId provided, skipping Telegram notification",
     );
