@@ -36,6 +36,7 @@ const notificationPreferencesSchema = new mongoose.Schema(
         appointment_cancelled: { type: Boolean, default: true },
         appointment_proposed: { type: Boolean, default: true },
         prescription_created: { type: Boolean, default: true },
+        new_financial_plan: { type: Boolean, default: true },
       },
 
       // Quiet hours (optional)
@@ -76,6 +77,7 @@ const notificationPreferencesSchema = new mongoose.Schema(
         appointment_cancelled: { type: Boolean, default: true },
         appointment_proposed: { type: Boolean, default: true },
         prescription_created: { type: Boolean, default: false },
+        new_financial_plan: { type: Boolean, default: true },
       },
 
       fallbackOnly: {
@@ -98,6 +100,7 @@ const notificationPreferencesSchema = new mongoose.Schema(
         appointment_cancelled: { type: Boolean, default: true },
         appointment_proposed: { type: Boolean, default: true },
         prescription_created: { type: Boolean, default: true },
+        new_financial_plan: { type: Boolean, default: true },
       },
     },
 

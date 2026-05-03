@@ -59,6 +59,8 @@ const inAppNotificationSchema = new mongoose.Schema(
         // Prescription related
         "NEW_PRESCRIPTION",
         "PRESCRIPTION_UPDATED",
+        // Financial related
+        "NEW_FINANCIAL_PLAN",
         // System
         "SYSTEM_NOTIFICATION",
       ],
@@ -67,7 +69,7 @@ const inAppNotificationSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ["appointment", "patient", "prescription", "system"],
+      enum: ["appointment", "patient", "prescription", "financial", "system"],
       default: "system",
       index: true,
     },

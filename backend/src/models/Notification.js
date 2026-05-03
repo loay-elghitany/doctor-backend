@@ -38,6 +38,7 @@ const notificationSchema = new mongoose.Schema(
         "appointment_cancelled",
         "appointment_completed",
         "prescription_created",
+        "new_financial_plan",
       ],
       required: true,
       index: true,
