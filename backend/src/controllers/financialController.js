@@ -9,6 +9,7 @@ import {
   notifyPatientFinancialPlan,
   notifyStaffFinancialPlanCreated,
   notifyStaffPaymentRecorded,
+  notifyPatientPaymentRecorded,
 } from "./notificationController.js";
 const toObjectId = (value) =>
   mongoose.Types.ObjectId.isValid(value)
@@ -49,7 +50,6 @@ const mapPlanSummary = (plan, paidAmount) => {
 
 export const createTreatmentPlan = async (req, res) => {
   try {
-    const doctorId = req.tenantId;
     const { patientId, title, totalCost, status, notes } = req.body || {};
 
     if (!patientId || !title || totalCost === undefined) {
@@ -60,13 +60,42 @@ export const createTreatmentPlan = async (req, res) => {
       });
     }
 
-    const exists = await ensurePatientBelongsToTenant(doctorId, patientId);
-    if (!exists) {
+    // Fetch patient and verify it belongs to this clinic
+    const patient = await Patient.findById(patientId);
+    if (!patient) {
       return res.status(404).json({
         success: false,
-        message: "Patient not found in this clinic",
+        message: "Patient not found",
         data: null,
       });
+    }
+
+    // Determine the actual doctorId - for secretaries, fetch from patient
+    let doctorId = req.tenantId;
+    if (req.user.role === ROLES.SECRETARY) {
+      // For secretaries, use the patient's doctorId as source of truth
+      doctorId = patient.doctorId;
+      // Verify the secretary's associated doctor matches the patient's doctor
+      if (
+        !patient.doctorId ||
+        patient.doctorId.toString() !== req.user.doctorId?.toString()
+      ) {
+        return res.status(403).json({
+          success: false,
+          message: "You cannot create a plan for a patient from another clinic",
+          data: null,
+        });
+      }
+    } else {
+      // For doctors, verify patient belongs to this doctor
+      const exists = await ensurePatientBelongsToTenant(doctorId, patientId);
+      if (!exists) {
+        return res.status(404).json({
+          success: false,
+          message: "Patient not found in this clinic",
+          data: null,
+        });
+      }
     }
 
     const plan = await TreatmentPlan.create({
@@ -78,24 +107,44 @@ export const createTreatmentPlan = async (req, res) => {
       notes: notes || "",
     });
 
-    const patient = await Patient.findById(patientId).select("clinicSlug");
-    await Promise.allSettled([
-      notifyPatientFinancialPlan(
-        patientId,
-        plan,
-        req.doctor?.name || "الدكتور",
-        patient?.clinicSlug,
-      ),
-      notifyStaffFinancialPlanCreated(
-        patient?.clinicSlug,
-        plan,
-        patient,
-        req.doctor,
-        "doctor",
-        req.doctor?._id,
-        req.doctor?.name,
-      ),
-    ]);
+    const patientWithClinic =
+      await Patient.findById(patientId).select("clinicSlug");
+
+    // Determine sender details based on request user role
+    const senderRole = req.user.role;
+    const senderId = req.user._id;
+    const senderName = req.user.name || "الموظف";
+
+    try {
+      await Promise.allSettled([
+        notifyPatientFinancialPlan(
+          patientId,
+          plan,
+          senderName,
+          patientWithClinic?.clinicSlug,
+        ),
+        notifyStaffFinancialPlanCreated(
+          patientWithClinic?.clinicSlug,
+          plan,
+          patientWithClinic,
+          { _id: senderId, name: senderName },
+          senderRole,
+          senderId,
+          senderName,
+        ),
+      ]);
+    } catch (notificationError) {
+      logger.error(
+        "createTreatmentPlan",
+        "Failed to send notifications",
+        notificationError,
+      );
+      console.error(
+        "[createTreatmentPlan] Notification error:",
+        notificationError,
+      );
+      // Don't fail the plan creation if notifications fail
+    }
 
     return res.status(201).json({
       success: true,
@@ -316,6 +365,13 @@ export const createPayment = async (req, res) => {
 
     try {
       const patient = await Patient.findById(patientId);
+      const doctorName = req.doctor?.name || req.user?.name || "الطبيب";
+      await notifyPatientPaymentRecorded(
+        patientId,
+        Number(amountPaid),
+        planId,
+        doctorName,
+      );
       await notifyStaffPaymentRecorded(
         patient?.clinicSlug || req.user?.clinicSlug,
         patient,
@@ -328,9 +384,10 @@ export const createPayment = async (req, res) => {
     } catch (notificationError) {
       logger.error(
         "createPayment",
-        "Failed to notify staff of recorded payment",
+        "Failed to notify of recorded payment",
         notificationError,
       );
+      console.error("createPayment notification error:", notificationError);
     }
 
     return res.status(201).json({

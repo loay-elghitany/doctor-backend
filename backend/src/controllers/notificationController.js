@@ -747,7 +747,7 @@ const notifyClinicStaff = async ({
     createInAppNotification({
       recipient,
       recipientRole,
-      recipientClinicSlug: null,
+      recipientClinicSlug: clinicSlug,
       sender,
       senderRole,
       senderName,
@@ -932,6 +932,43 @@ export const notifyStaffAppointmentProposed = async (
   });
 };
 
+export const notifyStaffAppointmentCompleted = async (
+  clinicSlug,
+  appointment,
+  patient,
+  senderRole,
+  senderId,
+  senderName,
+) => {
+  const doctorId = appointment.doctorId;
+  const flags = getStaffNotificationFlags(senderRole);
+  const roleLabel =
+    senderRole === "secretary"
+      ? "السكرتيرة"
+      : senderRole === "doctor"
+        ? "الدكتور"
+        : "المريض";
+
+  await notifyClinicStaff({
+    clinicSlug,
+    doctorId,
+    notifyDoctor: flags.notifyDoctor,
+    notifySecretaries: flags.notifySecretaries,
+    sender: senderId,
+    senderRole,
+    senderName,
+    type: "APPOINTMENT_COMPLETED",
+    category: "appointment",
+    title: "تم إنجاز الموعد",
+    message: `${roleLabel} ${senderName} أكمل موعد المريض ${patient.name} بتاريخ ${appointment.date.toLocaleDateString("ar-SA")} الساعة ${appointment.timeSlot}`,
+    link: `/appointments/${appointment._id}`,
+    linkType: "appointment",
+    appointmentId: appointment._id,
+    patientId: patient._id,
+    doctorId,
+  });
+};
+
 export const notifyStaffNewPrescription = async (
   clinicSlug,
   prescription,
@@ -1033,6 +1070,27 @@ export const notifyStaffPaymentRecorded = async (
     linkType: "dashboard",
     patientId: patient._id,
     doctorId,
+  });
+};
+
+export const notifyPatientPaymentRecorded = async (
+  patientId,
+  amount,
+  planId,
+  doctorName,
+) => {
+  await createInAppNotification({
+    recipient: patientId,
+    recipientRole: "patient",
+    senderRole: "doctor",
+    senderName: doctorName,
+    type: "PAYMENT_RECORDED",
+    category: "payment",
+    title: "تم تسجيل دفعة",
+    message: `تم تسجيل دفعة بقيمة ${amount} ج.م. في خطتك المالية.`,
+    link: `/patient/financials/${planId}`,
+    linkType: "dashboard",
+    patientId: patientId,
   });
 };
 

@@ -19,7 +19,11 @@ const router = express.Router();
 
 router.use(universalAuth, enforceTenant);
 
-router.post("/plans", requireRole(ROLES.DOCTOR), createTreatmentPlan);
+router.post(
+  "/plans",
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  createTreatmentPlan,
+);
 router.get(
   "/patients/:patientId/plans",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),
@@ -28,7 +32,11 @@ router.get(
 router.put("/plans/:planId", requireRole(ROLES.DOCTOR), updateTreatmentPlan);
 router.delete("/plans/:planId", requireRole(ROLES.DOCTOR), deleteTreatmentPlan);
 
-router.post("/payments", requireRole(ROLES.DOCTOR, ROLES.SECRETARY), createPayment);
+router.post(
+  "/payments",
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  createPayment,
+);
 router.get(
   "/patients/:patientId/payments",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),

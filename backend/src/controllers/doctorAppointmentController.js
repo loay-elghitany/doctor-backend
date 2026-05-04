@@ -10,6 +10,7 @@ import {
   notifyStaffAppointmentConfirmed,
   notifyStaffAppointmentCancelled,
   notifyStaffAppointmentProposed,
+  notifyStaffAppointmentCompleted,
 } from "./notificationController.js";
 import logger from "../utils/logger.js";
 import { canPerformAction } from "../utils/appointmentPermissions.js";
@@ -659,6 +660,10 @@ export const updateAppointmentStatus = async (req, res) => {
           "[updateAppointmentStatus] Failed to send notification:",
           notificationError.message,
         );
+        console.error(
+          "[updateAppointmentStatus] Notification error:",
+          notificationError,
+        );
         // Don't fail the update if notification fails
       }
     }
@@ -971,6 +976,7 @@ export const proposeTimes = async (req, res) => {
         "[proposeTimes] Failed to send notification:",
         notificationError.message,
       );
+      console.error("[proposeTimes] Notification error:", notificationError);
       // Don't fail the proposal if notification fails
     }
 
@@ -1039,7 +1045,8 @@ export const cancelAppointment = async (req, res) => {
     // Update appointment status
     appointment.status = APPOINTMENT_STATUS.CANCELLED;
     appointment.cancelledBy = req.doctor._id;
-    appointment.cancelledByType = "Doctor";
+    appointment.cancelledByType =
+      req.user?.role === "secretary" ? "Secretary" : "Doctor";
     // Clear reschedule options to prevent confusion
     appointment.rescheduleOptions = [];
 
@@ -1047,17 +1054,22 @@ export const cancelAppointment = async (req, res) => {
 
     // Auto-create timeline event for doctor cancellation
     try {
+      const cancellerRole = req.user?.role || "doctor";
+      const cancellerName =
+        cancellerRole === "secretary" ? "Secretary" : "Doctor";
+
       await createTimelineEvent({
         patientId: appointment.patientId,
         doctorId: appointment.doctorId,
         appointmentId: appointment._id,
         eventType: "appointment_cancelled",
         eventTitle: "Appointment Cancelled",
-        eventDescription: "Doctor cancelled appointment",
+        eventDescription: `${cancellerName} cancelled appointment`,
         eventStatus: "cancelled",
         visibility: "patient_visible",
         metadata: {
-          cancelledBy: "doctor",
+          cancelledBy: cancellerRole,
+          cancelledByName: req.user?.name || cancellerName,
           date: appointment.date,
           timeSlot: appointment.timeSlot,
         },
@@ -1101,7 +1113,7 @@ export const cancelAppointment = async (req, res) => {
         metadata: {
           date: appointment.date,
           timeSlot: appointment.timeSlot,
-          cancelledBy: "doctor",
+          cancelledBy: req.user?.role || "doctor",
           doctorName,
         },
       }).catch((err) =>
@@ -1131,12 +1143,21 @@ export const cancelAppointment = async (req, res) => {
         "[cancelAppointment] Failed to send notification:",
         notificationError.message,
       );
+      console.error(
+        "[cancelAppointment] Notification error:",
+        notificationError,
+      );
       // Don't fail the cancellation if notification fails
     }
 
+    const cancellationMessage =
+      req.user?.role === "secretary"
+        ? "Appointment cancelled by secretary."
+        : "Appointment cancelled by doctor.";
+
     res.json({
       success: true,
-      message: "Appointment cancelled by doctor.",
+      message: cancellationMessage,
       data: appointment,
     });
   } catch (error) {
@@ -1224,17 +1245,23 @@ export const markAppointmentCompleted = async (req, res) => {
 
     // Auto-create timeline event for completion
     try {
+      const completerRole = req.user?.role || "doctor";
+      const completerName =
+        completerRole === "secretary" ? "Secretary" : "Doctor";
+
       await createTimelineEvent({
         patientId: appointment.patientId,
         doctorId: appointment.doctorId,
         appointmentId: appointment._id,
         eventType: "appointment_completed",
         eventTitle: "Appointment Completed",
-        eventDescription: "Doctor marked appointment as completed",
+        eventDescription: `${completerName} marked appointment as completed`,
         eventStatus: "completed",
         visibility: "patient_visible",
         metadata: {
           completedOn: new Date(),
+          completedByRole: completerRole,
+          completedByName: req.user?.name || completerName,
           date: appointment.date,
           timeSlot: appointment.timeSlot,
           notes: notes || null,
@@ -1277,6 +1304,10 @@ export const markAppointmentCompleted = async (req, res) => {
         "[markAppointmentCompleted] WhatsApp notification failed:",
         notificationError.message,
       );
+      console.error(
+        "[markAppointmentCompleted] WhatsApp notification error:",
+        notificationError,
+      );
       // Don't fail the completion if WhatsApp notification fails
     }
 
@@ -1289,10 +1320,23 @@ export const markAppointmentCompleted = async (req, res) => {
         appointment,
         doctorName,
       );
+
+      await notifyStaffAppointmentCompleted(
+        req.doctor?.clinicSlug,
+        appointment,
+        patient,
+        req.user?.role || "doctor",
+        req.user?._id || req.doctor._id,
+        req.user?.name || doctorName,
+      );
     } catch (notificationError) {
       logger.error(
         "[markAppointmentCompleted] In-app notification failed:",
         notificationError.message,
+      );
+      console.error(
+        "[markAppointmentCompleted] In-app notification error:",
+        notificationError,
       );
       // Don't fail the completion if in-app notification fails
     }
