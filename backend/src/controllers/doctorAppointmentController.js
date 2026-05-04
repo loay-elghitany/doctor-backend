@@ -1,7 +1,7 @@
 import Appointment from "../models/Appointment.js";
 import Patient from "../models/Patient.js";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
-import { isPast, parseISO, isBefore } from "date-fns";
+import { isPast, isValid, parseISO, isBefore } from "date-fns";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import {
@@ -95,6 +95,10 @@ export const createDoctorAppointment = async (req, res) => {
     try {
       parsedDate = parseISO(date);
     } catch (err) {
+      parsedDate = new Date("Invalid Date");
+    }
+
+    if (!isValid(parsedDate)) {
       return res.status(400).json({
         success: false,
         message: "Invalid date format. Use ISO 8601.",

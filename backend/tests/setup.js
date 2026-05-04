@@ -1,7 +1,10 @@
 import mongoose from "mongoose";
 import { MongoMemoryServer } from "mongodb-memory-server";
+import { jest } from "@jest/globals";
 
 let mongoServer;
+
+jest.setTimeout(30000);
 
 beforeAll(async () => {
   process.env.JWT_SECRET = process.env.JWT_SECRET || "test-secret";
@@ -14,9 +17,8 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  const collections = mongoose.connection.collections;
-  for (const collection of Object.values(collections)) {
-    await collection.deleteMany({});
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.connection.dropDatabase();
   }
 });
 

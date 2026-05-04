@@ -86,7 +86,7 @@ const appointmentSchema = new mongoose.Schema(
     },
     cancelledByType: {
       type: String,
-      enum: ["Doctor", "Patient"],
+      enum: ["Doctor", "Patient", "Secretary"],
     },
     createdBy: {
       type: String,

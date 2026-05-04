@@ -17,10 +17,17 @@ const toObjectId = (value) =>
     : null;
 
 const resolvePatientIdForRead = (req) => {
+  const requestedPatientId = String(
+    req.params.patientId || req.query.patientId || "",
+  );
   if (req.user?.role === ROLES.PATIENT) {
-    return String(req.user._id || "");
+    const ownPatientId = String(req.user._id || "");
+    if (requestedPatientId && requestedPatientId !== ownPatientId) {
+      return { isForbidden: true, patientId: ownPatientId };
+    }
+    return { isForbidden: false, patientId: ownPatientId };
   }
-  return String(req.params.patientId || req.query.patientId || "");
+  return { isForbidden: false, patientId: requestedPatientId };
 };
 
 const ensurePatientBelongsToTenant = async (tenantId, patientId) => {
@@ -164,7 +171,15 @@ export const createTreatmentPlan = async (req, res) => {
 export const listTreatmentPlansByPatient = async (req, res) => {
   try {
     const doctorId = req.tenantId;
-    const patientId = resolvePatientIdForRead(req);
+    const { isForbidden, patientId } = resolvePatientIdForRead(req);
+    if (isForbidden) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to access this patient's treatment plans",
+        data: null,
+      });
+    }
     if (!patientId) {
       return res.status(400).json({
         success: false,
@@ -408,7 +423,14 @@ export const createPayment = async (req, res) => {
 export const listPaymentsByPatient = async (req, res) => {
   try {
     const doctorId = req.tenantId;
-    const patientId = resolvePatientIdForRead(req);
+    const { isForbidden, patientId } = resolvePatientIdForRead(req);
+    if (isForbidden) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not authorized to access this patient's payments",
+        data: null,
+      });
+    }
     if (!patientId) {
       return res.status(400).json({
         success: false,
@@ -516,7 +538,15 @@ export const deletePayment = async (req, res) => {
 export const getPatientFinancialSummary = async (req, res) => {
   try {
     const doctorId = req.tenantId;
-    const patientId = resolvePatientIdForRead(req);
+    const { isForbidden, patientId } = resolvePatientIdForRead(req);
+    if (isForbidden) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "You are not authorized to access this patient's financial summary",
+        data: null,
+      });
+    }
     if (!patientId) {
       return res.status(400).json({
         success: false,

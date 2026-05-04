@@ -32,6 +32,7 @@ const patientTimelineEventSchema = new mongoose.Schema(
         "appointment_created",
         "appointment_approved",
         "appointment_rejected",
+        "appointment_cancelled",
         "appointment_completed",
         "prescription_created",
         "doctor_note_added",
