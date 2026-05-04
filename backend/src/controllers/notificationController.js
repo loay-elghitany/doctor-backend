@@ -706,7 +706,12 @@ const getClinicSecretaries = async (clinicSlug) => {
   if (!clinicSlug) {
     return [];
   }
-  return Secretary.find({ clinicSlug }).select("_id").lean();
+  // Find doctor by clinicSlug first, then find all secretaries for that doctor
+  const doctor = await Doctor.findOne({ clinicSlug }).select("_id");
+  if (!doctor) {
+    return [];
+  }
+  return Secretary.find({ doctorId: doctor._id }).select("_id").lean();
 };
 
 const notifyClinicStaff = async ({
