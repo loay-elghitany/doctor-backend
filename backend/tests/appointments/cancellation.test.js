@@ -1,4 +1,5 @@
 import PatientTimelineEvent from "../../src/models/PatientTimelineEvent.js";
+import InAppNotification from "../../src/models/InAppNotification.js";
 import {
   authHeader,
   request,
@@ -43,6 +44,17 @@ describe("Secretary appointment cancellation", () => {
     expect(timelineEvent.eventTitle).toBe("Appointment Cancelled");
     expect(timelineEvent.visibility).toBe("patient_visible");
     expect(timelineEvent.metadata?.cancelledBy).toBe("secretary");
+
+    // Verify InAppNotification was created with correct type
+    const notification = await InAppNotification.findOne({
+      appointmentId: appointment._id,
+      type: "APPOINTMENT_CANCELLED",
+    });
+    expect(notification).not.toBeNull();
+    expect(notification.category).toBe("appointment");
+    expect(notification.recipient.toString()).toBe(
+      fixtures.patientA1._id.toString(),
+    );
   });
 
   test("Doctor can cancel an appointment and a valid timeline event is created", async () => {

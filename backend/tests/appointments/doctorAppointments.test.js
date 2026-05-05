@@ -1,4 +1,5 @@
 import Appointment from "../../src/models/Appointment.js";
+import InAppNotification from "../../src/models/InAppNotification.js";
 import { authHeader, request, setupAuthFixtures } from "../testUtils.js";
 
 describe("Doctor Appointment Management", () => {
@@ -43,6 +44,17 @@ describe("Doctor Appointment Management", () => {
       const appointment = await Appointment.findById(response.body.data._id);
       expect(appointment).not.toBeNull();
       expect(appointment.status).toBe("scheduled");
+
+      // Verify InAppNotification was created with correct type
+      const notification = await InAppNotification.findOne({
+        appointmentId: appointment._id,
+        type: "NEW_APPOINTMENT",
+      });
+      expect(notification).not.toBeNull();
+      expect(notification.category).toBe("appointment");
+      expect(notification.recipient.toString()).toBe(
+        fixtures.patientA1._id.toString(),
+      );
     });
 
     test("Secretary can create appointment for their doctor's patient", async () => {
@@ -242,6 +254,33 @@ describe("Doctor Appointment Management", () => {
       expect(updated.timeSlot).toBe("14:00");
     });
 
+    test("Doctor can confirm appointment", async () => {
+      const response = await request
+        .put(`/api/doctor-appointments/${appointment._id.toString()}`)
+        .set("Authorization", authHeader(fixtures.doctorAToken))
+        .send({
+          status: "confirmed",
+        });
+
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.status).toBe("confirmed");
+
+      const updated = await Appointment.findById(appointment._id);
+      expect(updated.status).toBe("confirmed");
+
+      // Verify InAppNotification was created with correct type
+      const notification = await InAppNotification.findOne({
+        appointmentId: appointment._id,
+        type: "APPOINTMENT_CONFIRMED",
+      });
+      expect(notification).not.toBeNull();
+      expect(notification.category).toBe("appointment");
+      expect(notification.recipient.toString()).toBe(
+        fixtures.patientA1._id.toString(),
+      );
+    });
+
     test("Doctor cannot update another doctor's appointment", async () => {
       const response = await request
         .put(`/api/doctor-appointments/${appointment._id.toString()}`)
@@ -286,6 +325,17 @@ describe("Doctor Appointment Management", () => {
         fixtures.doctorA._id.toString(),
       );
       expect(updated.cancelledByType).toBe("Doctor");
+
+      // Verify InAppNotification was created with correct type
+      const notification = await InAppNotification.findOne({
+        appointmentId: appointment._id,
+        type: "APPOINTMENT_CANCELLED",
+      });
+      expect(notification).not.toBeNull();
+      expect(notification.category).toBe("appointment");
+      expect(notification.recipient.toString()).toBe(
+        fixtures.patientA1._id.toString(),
+      );
     });
 
     test("Secretary can cancel appointment", async () => {

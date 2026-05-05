@@ -48,6 +48,8 @@ const inAppNotificationSchema = new mongoose.Schema(
       enum: [
         // Appointment related
         "NEW_APPOINTMENT",
+        "APPOINTMENT_CONFIRMED",
+        "APPOINTMENT_PROPOSED",
         "APPOINTMENT_ACCEPTED",
         "APPOINTMENT_REJECTED",
         "APPOINTMENT_RESCHEDULED",
@@ -56,6 +58,7 @@ const inAppNotificationSchema = new mongoose.Schema(
         // Patient related
         "NEW_PATIENT_REGISTERED",
         "PATIENT_UPDATED",
+        "NEW_MEDICAL_NOTE",
         // Prescription related
         "NEW_PRESCRIPTION",
         "PRESCRIPTION_UPDATED",
