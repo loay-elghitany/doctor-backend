@@ -270,7 +270,8 @@ export const createPatientUnderDoctor = async (req, res) => {
     });
 
     try {
-      await notifyStaffNewPatient(clinicSlug, patient);
+      const { password: _, ...patientSafeData } = patient.toObject();
+      await notifyStaffNewPatient(clinicSlug, patientSafeData);
     } catch (notificationError) {
       logger.error(
         "[createPatientUnderDoctor] Failed to notify staff of new patient:",

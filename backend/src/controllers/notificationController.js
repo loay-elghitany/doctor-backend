@@ -1109,7 +1109,7 @@ export const notifyPatientAppointmentStatus = async (
     accepted: {
       title: "تم قبول الموعد",
       message: `تم قبول موعدك مع د. ${doctorName}. نتمنى لك الشفاء العاجل!`,
-      type: "APPOINTMENT_ACCEPTED",
+      type: "APPOINTMENT_CONFIRMED",
     },
     rejected: {
       title: "تم رفض الموعد",
