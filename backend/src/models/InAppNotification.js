@@ -62,6 +62,7 @@ const inAppNotificationSchema = new mongoose.Schema(
         // Financial related
         "NEW_FINANCIAL_PLAN",
         "NEW_PAYMENT_MADE",
+        "PAYMENT_RECORDED",
         // System
         "SYSTEM_NOTIFICATION",
       ],
@@ -70,7 +71,14 @@ const inAppNotificationSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      enum: ["appointment", "patient", "prescription", "financial", "system"],
+      enum: [
+        "appointment",
+        "patient",
+        "prescription",
+        "financial",
+        "payment",
+        "system",
+      ],
       default: "system",
       index: true,
     },

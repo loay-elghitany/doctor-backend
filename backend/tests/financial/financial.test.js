@@ -1,5 +1,6 @@
 import TreatmentPlan from "../../src/models/TreatmentPlan.js";
 import Payment from "../../src/models/Payment.js";
+import InAppNotification from "../../src/models/InAppNotification.js";
 import { authHeader, request, setupAuthFixtures } from "../testUtils.js";
 
 describe("Financial Management - Treatment Plans and Payments", () => {
@@ -186,6 +187,15 @@ describe("Financial Management - Treatment Plans and Payments", () => {
       expect(savedPayment).not.toBeNull();
       expect(savedPayment.planId.toString()).toBe(plan._id.toString());
       expect(savedPayment.receivedByModel).toBe("Doctor");
+
+      // Check that an InAppNotification with type 'PAYMENT_RECORDED' was created
+      const notification = await InAppNotification.findOne({
+        type: "PAYMENT_RECORDED",
+        recipient: fixtures.patientA1._id,
+        recipientRole: "patient",
+      });
+      expect(notification).not.toBeNull();
+      expect(notification.category).toBe("payment");
     });
 
     test("Secretary can record a payment for a treatment plan", async () => {
