@@ -391,36 +391,37 @@ export const uploadScannedPrescription = async (req, res) => {
       clinicSlug: secretary.clinicSlug,
     });
 
-    // Create in-app notification for patient
-    await InAppNotification.create({
-      recipient: patientId,
-      recipientRole: "patient",
-      recipientClinicSlug: secretary.clinicSlug,
-      sender: secretary._id,
-      senderRole: "secretary",
-      senderName: secretary.name,
-      type: "SCANNED_PRESCRIPTION_UPLOADED",
-      title: "تم رفع روشتة جديدة",
-      message:
-        "تم رفع روشتة جديدة في ملفك الطبي. يمكنك عرضها أو طباعتها من حسابك",
-      category: "prescription",
-    });
-
-    // Send WhatsApp notification
+    // Send notifications, but do not fail the request if notifications fail
     try {
+      // Create in-app notification for patient
+      await InAppNotification.create({
+        recipient: patientId,
+        recipientRole: "patient",
+        recipientClinicSlug: secretary.clinicSlug,
+        sender: secretary._id,
+        senderRole: "secretary",
+        senderName: secretary.name,
+        type: "SCANNED_PRESCRIPTION_UPLOADED",
+        title: "تم رفع روشتة جديدة",
+        message:
+          "تم رفع روشتة جديدة في ملفك الطبي. يمكنك عرضها أو طباعتها من حسابك",
+        category: "prescription",
+      });
+
+      // Send WhatsApp notification
       if (patient.phoneNumber) {
         await whatsappService.sendMessage(
           patient.phoneNumber,
           "تم رفع روشتة جديدة في ملفك الطبي. يمكنك عرضها أو طباعتها من حسابك",
         );
       }
-    } catch (whatsappError) {
+    } catch (notificationError) {
       logger.error(
         "uploadScannedPrescription",
-        "Failed to send WhatsApp notification",
-        whatsappError,
+        "Notification delivery failed",
+        notificationError,
       );
-      // Don't fail the upload if WhatsApp fails
+      // Do not throw; continue and return the saved document
     }
 
     res.status(201).json({
