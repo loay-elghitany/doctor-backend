@@ -44,12 +44,16 @@ class CloudinaryService {
     }
 
     try {
-      const resourceType = fileType === "pdf" ? "raw" : "image";
-
       const uploadOptions = {
-        resource_type: resourceType,
+        resource_type: "auto",
         folder: "scanned-prescriptions",
+        use_filename: true,
+        unique_filename: true,
       };
+
+      if (fileType === "pdf") {
+        uploadOptions.format = "pdf";
+      }
 
       if (publicId) {
         uploadOptions.public_id = publicId;

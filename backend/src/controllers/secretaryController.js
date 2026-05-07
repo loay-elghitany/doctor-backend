@@ -378,7 +378,23 @@ export const uploadScannedPrescription = async (req, res) => {
     const fileType = file.mimetype === "application/pdf" ? "pdf" : "image";
 
     // Upload to Cloudinary
-    const fileUrl = await cloudinaryService.uploadBuffer(file.buffer, fileType);
+    let fileUrl;
+    try {
+      fileUrl = await cloudinaryService.uploadBuffer(file.buffer, fileType);
+    } catch (cloudinaryError) {
+      console.error("Cloudinary Error:", cloudinaryError);
+      logger.error(
+        "uploadScannedPrescription",
+        "Cloudinary upload failed",
+        cloudinaryError,
+      );
+      return res.status(500).json({
+        success: false,
+        message:
+          "Cloudinary Error: " + (cloudinaryError.message || "Unknown error"),
+        data: null,
+      });
+    }
 
     // Save to database
     const scannedPrescription = await ScannedPrescription.create({
@@ -438,9 +454,10 @@ export const uploadScannedPrescription = async (req, res) => {
     });
   } catch (error) {
     logger.error("uploadScannedPrescription error:", error);
+    console.error("uploadScannedPrescription stack:", error.stack);
     res.status(500).json({
       success: false,
-      message: "Server error",
+      message: error.message || "Server error",
       data: null,
     });
   }
