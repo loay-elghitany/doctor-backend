@@ -1,6 +1,8 @@
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
 import Secretary from "../models/Secretary.js";
+import ScannedPrescription from "../models/ScannedPrescription.js";
+import { ROLES } from "../constants/roles.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
@@ -437,6 +439,122 @@ export const getPatientProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error",
+      data: null,
+    });
+  }
+};
+
+export const getPatientScannedPrescriptions = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Patient ID is required",
+        data: null,
+      });
+    }
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+        data: null,
+      });
+    }
+
+    const { role, _id: userId, clinicSlug } = req.user;
+    const isPatient = role === ROLES.PATIENT;
+    const isDoctor = role === ROLES.DOCTOR;
+    const isSecretary = role === ROLES.SECRETARY;
+
+    if (isPatient && userId.toString() !== patientId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to access these scanned prescriptions",
+        data: null,
+      });
+    }
+
+    const patient = await Patient.findById(patientId).select("clinicSlug");
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
+        data: null,
+      });
+    }
+
+    if ((isDoctor || isSecretary) && patient.clinicSlug !== clinicSlug) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to access these scanned prescriptions",
+        data: null,
+      });
+    }
+
+    const query = { patientId };
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const totalItems = await ScannedPrescription.countDocuments(query);
+
+    const scannedPrescriptions = await ScannedPrescription.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Scanned prescriptions retrieved successfully",
+      data: scannedPrescriptions,
+      pagination: buildPagination(page, limit, totalItems),
+    });
+  } catch (error) {
+    logger.error("getPatientScannedPrescriptions error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error retrieving scanned prescriptions",
+      data: null,
+    });
+  }
+};
+
+export const getDoctorScannedPrescriptions = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const clinicSlug = req.doctor.clinicSlug;
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const query = { clinicSlug };
+    if (req.query.patientId) {
+      query.patientId = req.query.patientId;
+    }
+
+    const totalItems = await ScannedPrescription.countDocuments(query);
+    const scannedPrescriptions = await ScannedPrescription.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate("patientId", "name")
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Doctor scanned prescriptions retrieved successfully",
+      data: scannedPrescriptions,
+      pagination: buildPagination(page, limit, totalItems),
+    });
+  } catch (error) {
+    logger.error("getDoctorScannedPrescriptions error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error retrieving scanned prescriptions",
       data: null,
     });
   }

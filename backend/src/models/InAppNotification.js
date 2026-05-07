@@ -62,6 +62,7 @@ const inAppNotificationSchema = new mongoose.Schema(
         // Prescription related
         "NEW_PRESCRIPTION",
         "PRESCRIPTION_UPDATED",
+        "SCANNED_PRESCRIPTION_UPLOADED",
         // Financial related
         "NEW_FINANCIAL_PLAN",
         "NEW_PAYMENT_MADE",

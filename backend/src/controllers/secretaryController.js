@@ -1,9 +1,13 @@
 import Secretary from "../models/Secretary.js";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
+import ScannedPrescription from "../models/ScannedPrescription.js";
+import InAppNotification from "../models/InAppNotification.js";
 import jwt from "jsonwebtoken";
 import { createPatientRecord } from "./patientController.js";
 import { notifyStaffNewPatient } from "./notificationController.js";
+import cloudinaryService from "../services/cloudinaryService.js";
+import { whatsappService } from "../services/whatsappNotificationService.js";
 import logger from "../utils/logger.js";
 
 const generateSecretaryToken = (id, role, doctorId) => {
@@ -307,6 +311,132 @@ export const createPatientUnderDoctor = async (req, res) => {
         data: null,
       });
     }
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      data: null,
+    });
+  }
+};
+export const uploadScannedPrescription = async (req, res) => {
+  try {
+    const { patientId, doctorId, notes } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        message: "File is required",
+        data: null,
+      });
+    }
+
+    // Validate file type
+    const allowedTypes = ["image/jpeg", "image/png", "application/pdf"];
+    if (!allowedTypes.includes(file.mimetype)) {
+      return res.status(400).json({
+        success: false,
+        message: "Only JPG, PNG, and PDF files are allowed",
+        data: null,
+      });
+    }
+
+    // Validate file size (5MB limit)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return res.status(400).json({
+        success: false,
+        message: "File size must be 5MB or less",
+        data: null,
+      });
+    }
+
+    // Get secretary info
+    const secretary = req.user;
+    if (!secretary || secretary.role !== "secretary") {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as secretary",
+        data: null,
+      });
+    }
+
+    // Verify patient exists and belongs to secretary's clinic
+    const patient = await Patient.findOne({
+      _id: patientId,
+      clinicSlug: secretary.clinicSlug,
+    });
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found or access denied",
+        data: null,
+      });
+    }
+
+    // Determine file type
+    const fileType = file.mimetype === "application/pdf" ? "pdf" : "image";
+
+    // Upload to Cloudinary
+    const fileUrl = await cloudinaryService.uploadBuffer(file.buffer, fileType);
+
+    // Save to database
+    const scannedPrescription = await ScannedPrescription.create({
+      patientId,
+      doctorId: doctorId || null,
+      uploadedBy: secretary._id,
+      fileUrl,
+      fileType,
+      notes: notes || null,
+      clinicSlug: secretary.clinicSlug,
+    });
+
+    // Create in-app notification for patient
+    await InAppNotification.create({
+      recipient: patientId,
+      recipientRole: "patient",
+      recipientClinicSlug: secretary.clinicSlug,
+      sender: secretary._id,
+      senderRole: "secretary",
+      senderName: secretary.name,
+      type: "SCANNED_PRESCRIPTION_UPLOADED",
+      title: "تم رفع روشتة جديدة",
+      message:
+        "تم رفع روشتة جديدة في ملفك الطبي. يمكنك عرضها أو طباعتها من حسابك",
+      category: "prescription",
+    });
+
+    // Send WhatsApp notification
+    try {
+      if (patient.phoneNumber) {
+        await whatsappService.sendMessage(
+          patient.phoneNumber,
+          "تم رفع روشتة جديدة في ملفك الطبي. يمكنك عرضها أو طباعتها من حسابك",
+        );
+      }
+    } catch (whatsappError) {
+      logger.error(
+        "uploadScannedPrescription",
+        "Failed to send WhatsApp notification",
+        whatsappError,
+      );
+      // Don't fail the upload if WhatsApp fails
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Scanned prescription uploaded successfully",
+      data: {
+        _id: scannedPrescription._id,
+        patientId: scannedPrescription.patientId,
+        fileUrl: scannedPrescription.fileUrl,
+        fileType: scannedPrescription.fileType,
+        notes: scannedPrescription.notes,
+        uploadedAt: scannedPrescription.createdAt,
+      },
+    });
+  } catch (error) {
+    logger.error("uploadScannedPrescription error:", error);
     res.status(500).json({
       success: false,
       message: "Server error",

@@ -4,11 +4,13 @@ import {
   loginSecretary,
   getSecretaryProfile,
   createPatientUnderDoctor,
+  uploadScannedPrescription,
 } from "../controllers/secretaryController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
+import multer from "multer";
 
 const router = express.Router();
 
@@ -31,6 +33,16 @@ router.post(
   universalAuth,
   requireRole(ROLES.SECRETARY),
   createPatientUnderDoctor,
+);
+
+// Scanned prescription upload
+const upload = multer({ storage: multer.memoryStorage() });
+router.post(
+  "/prescriptions/upload",
+  universalAuth,
+  requireRole(ROLES.SECRETARY),
+  upload.single("file"),
+  uploadScannedPrescription,
 );
 
 // Note: /patients and /appointments routes removed - now use unified /api/patients and /api/appointments
