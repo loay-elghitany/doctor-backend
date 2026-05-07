@@ -396,10 +396,17 @@ export const uploadScannedPrescription = async (req, res) => {
       });
     }
 
+    // Determine doctorId for this scanned prescription using provided data, patient assignment, or secretary's doctor
+    const resolvedDoctorId =
+      doctorId ||
+      (patient.doctorId ? patient.doctorId.toString() : null) ||
+      secretary.doctorId ||
+      null;
+
     // Save to database
     const scannedPrescription = await ScannedPrescription.create({
       patientId,
-      doctorId: doctorId || null,
+      doctorId: resolvedDoctorId,
       uploadedBy: secretary._id,
       fileUrl,
       fileType,

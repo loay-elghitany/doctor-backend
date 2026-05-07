@@ -6,6 +6,7 @@ import { ROLES } from "../constants/roles.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import logger from "../utils/logger.js";
+import cloudinaryService from "../services/cloudinaryService.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import { notifyStaffNewPatient } from "./notificationController.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
@@ -530,10 +531,13 @@ export const getDoctorScannedPrescriptions = async (req, res) => {
     }
 
     const clinicSlug = req.doctor.clinicSlug;
+    const doctorId = req.doctor._id;
     const { page, limit, skip } = getPaginationParams(req.query);
-    const query = { clinicSlug };
+    const query = {
+      $or: [{ clinicSlug }, { doctorId }],
+    };
     if (req.query.patientId) {
-      query.patientId = req.query.patientId;
+      query.$and = [{ patientId: req.query.patientId }];
     }
 
     const totalItems = await ScannedPrescription.countDocuments(query);
@@ -555,6 +559,103 @@ export const getDoctorScannedPrescriptions = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server error retrieving scanned prescriptions",
+      data: null,
+    });
+  }
+};
+
+/**
+ * Delete a scanned prescription
+ * Only Admin, Secretary, and Doctor who own the clinic can delete
+ * Removes both the document and the Cloudinary file
+ */
+export const deleteScannedPrescription = async (req, res) => {
+  try {
+    const { prescriptionId } = req.params;
+
+    if (!prescriptionId) {
+      return res.status(400).json({
+        success: false,
+        message: "Prescription ID is required",
+        data: null,
+      });
+    }
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+        data: null,
+      });
+    }
+
+    const { role, _id: userId, clinicSlug } = req.user;
+
+    // Find the scanned prescription
+    const scannedPrescription =
+      await ScannedPrescription.findById(prescriptionId);
+    if (!scannedPrescription) {
+      return res.status(404).json({
+        success: false,
+        message: "Scanned prescription not found",
+        data: null,
+      });
+    }
+
+    // Authorization check: Only allow Secretary and Doctor from the same clinic
+    if (role === ROLES.SECRETARY || role === ROLES.DOCTOR) {
+      if (scannedPrescription.clinicSlug !== clinicSlug) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to delete this prescription",
+          data: null,
+        });
+      }
+    } else if (role === ROLES.ADMIN) {
+      // Admins can delete any prescription
+    } else {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to delete prescriptions",
+        data: null,
+      });
+    }
+
+    // Delete file from Cloudinary if it exists
+    if (scannedPrescription.fileUrl) {
+      try {
+        await cloudinaryService.deleteFile(scannedPrescription.fileUrl);
+      } catch (cloudinaryError) {
+        logger.error(
+          "deleteScannedPrescription",
+          "Failed to delete from Cloudinary",
+          cloudinaryError,
+        );
+        // Continue with database deletion even if Cloudinary deletion fails
+      }
+    }
+
+    // Delete from database
+    await ScannedPrescription.deleteOne({ _id: prescriptionId });
+
+    logger.info("deleteScannedPrescription", "Prescription deleted", {
+      prescriptionId,
+      userId,
+      clinicSlug,
+    });
+
+    res.json({
+      success: true,
+      message: "Scanned prescription deleted successfully",
+      data: {
+        deletedId: prescriptionId,
+      },
+    });
+  } catch (error) {
+    logger.error("deleteScannedPrescription error:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Server error deleting scanned prescription",
       data: null,
     });
   }

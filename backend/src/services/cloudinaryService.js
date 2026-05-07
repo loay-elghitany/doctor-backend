@@ -32,6 +32,100 @@ class CloudinaryService {
   }
 
   /**
+   * Extract public_id from a Cloudinary URL
+   * @param {string} cloudinaryUrl - The Cloudinary URL
+   * @returns {string|null} - The public_id or null if unable to extract
+   */
+  extractPublicId(cloudinaryUrl) {
+    if (!cloudinaryUrl) return null;
+    try {
+      // Cloudinary URLs format may include transformations and version segments.
+      const urlParts = cloudinaryUrl.split("/upload/");
+      if (urlParts.length < 2) return null;
+
+      const pathParts = urlParts[1].split("/");
+      // Remove version tokens like v1234567890 if present
+      const filteredParts = pathParts.filter((part) => !/^v\d+$/.test(part));
+
+      const fileName = filteredParts.pop();
+      if (!fileName) return null;
+
+      const publicId = fileName.replace(/\.[^/.]+$/, "");
+      if (filteredParts.length > 0) {
+        return `${filteredParts.join("/")}/${publicId}`;
+      }
+      return publicId;
+    } catch (error) {
+      logger.error(
+        "CloudinaryService",
+        "Failed to extract public_id from URL",
+        {
+          url: cloudinaryUrl,
+          error: error.message,
+        },
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Delete a file from Cloudinary
+   * @param {string} cloudinaryUrl - The Cloudinary URL of the file to delete
+   * @returns {Promise<boolean>} - True if deletion was successful
+   */
+  async deleteFile(cloudinaryUrl) {
+    if (!this.isConfigured) {
+      throw new Error("Cloudinary is not configured");
+    }
+
+    if (!cloudinaryUrl) {
+      logger.warn("CloudinaryService", "No URL provided for deletion");
+      return false;
+    }
+
+    try {
+      const publicId = this.extractPublicId(cloudinaryUrl);
+      if (!publicId) {
+        logger.warn(
+          "CloudinaryService",
+          "Could not extract public_id from URL",
+          { url: cloudinaryUrl },
+        );
+        return false;
+      }
+
+      const result = await cloudinary.uploader.destroy(publicId);
+
+      if (result.result === "ok") {
+        logger.info("CloudinaryService", "File deleted successfully", {
+          publicId,
+          url: cloudinaryUrl,
+        });
+        return true;
+      } else {
+        logger.warn(
+          "CloudinaryService",
+          "File deletion returned non-ok result",
+          { publicId, result: result.result },
+        );
+        return false;
+      }
+    } catch (error) {
+      logger.error(
+        "CloudinaryService",
+        "Failed to delete file from Cloudinary",
+        {
+          url: cloudinaryUrl,
+          error: error.message,
+        },
+      );
+      throw new Error(
+        `Failed to delete file from Cloudinary: ${error.message}`,
+      );
+    }
+  }
+
+  /**
    * Upload a file buffer to Cloudinary
    * @param {Buffer} buffer - File buffer
    * @param {string} fileType - 'image' or 'pdf'

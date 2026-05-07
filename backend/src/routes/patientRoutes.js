@@ -5,6 +5,7 @@ import { getPatientProfile } from "../controllers/patientController.js";
 import {
   getUnifiedPatients,
   getPatientScannedPrescriptions,
+  deleteScannedPrescription,
 } from "../controllers/patientController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { enforceTenant } from "../middleware/enforceTenant.js";
@@ -29,6 +30,14 @@ router.get(
   universalAuth,
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),
   getPatientScannedPrescriptions,
+);
+
+// /api/patients/scanned-prescriptions/:prescriptionId (DELETE)
+router.delete(
+  "/scanned-prescriptions/:prescriptionId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.ADMIN),
+  deleteScannedPrescription,
 );
 
 /**
