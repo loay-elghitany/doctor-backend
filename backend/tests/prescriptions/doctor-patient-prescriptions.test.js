@@ -23,16 +23,20 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
       });
 
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);
       expect(Array.isArray(response.body.data)).toBe(true);
       expect(response.body.data.length).toBe(1);
-      expect(response.body.data[0]._id.toString()).toBe(prescription._id.toString());
+      expect(response.body.data[0]._id.toString()).toBe(
+        prescription._id.toString(),
+      );
       expect(response.body.data[0].notes).toBe(
-        "Test prescription for patient A1"
+        "Test prescription for patient A1",
       );
       expect(response.body.pagination).toBeDefined();
     });
@@ -52,7 +56,9 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
 
       // Doctor A tries to access Patient B1's prescriptions
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientB1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientB1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
       expect(response.status).toBe(403);
@@ -74,7 +80,9 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
 
     test("Returns empty list when patient has no scanned prescriptions", async () => {
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA2._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA2._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
       expect(response.status).toBe(200);
@@ -85,7 +93,7 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
 
     test("Returns 401 when not authenticated", async () => {
       const response = await request.get(
-        `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`
+        `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
       );
 
       expect(response.status).toBe(401);
@@ -119,7 +127,7 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
       // Test first page with limit 2
       const response1 = await request
         .get(
-          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions?page=1&limit=2`
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions?page=1&limit=2`,
         )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
@@ -131,7 +139,7 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
       // Test second page
       const response2 = await request
         .get(
-          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions?page=2&limit=2`
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions?page=2&limit=2`,
         )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
@@ -168,17 +176,19 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
       });
 
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
       expect(response.status).toBe(200);
       expect(response.body.data.length).toBe(2);
       // Newest first (prescription2 created after prescription1)
       expect(response.body.data[0]._id.toString()).toBe(
-        prescription2._id.toString()
+        prescription2._id.toString(),
       );
       expect(response.body.data[1]._id.toString()).toBe(
-        prescription1._id.toString()
+        prescription1._id.toString(),
       );
     });
 
@@ -197,7 +207,9 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
       });
 
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.doctorAToken));
 
       expect(response.status).toBe(200);
@@ -206,7 +218,9 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
 
     test("Secretary role cannot access doctor prescriptions endpoint", async () => {
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.secretaryAToken));
 
       // Should be forbidden or unauthorized depending on role-based access control
@@ -215,7 +229,9 @@ describe("Doctor Patient Scanned Prescriptions Endpoint", () => {
 
     test("Patient role cannot access doctor prescriptions endpoint", async () => {
       const response = await request
-        .get(`/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`)
+        .get(
+          `/api/doctors/patients/${fixtures.patientA1._id}/scanned-prescriptions`,
+        )
         .set("Authorization", authHeader(fixtures.patientA1Token));
 
       // Should be forbidden or unauthorized depending on role-based access control

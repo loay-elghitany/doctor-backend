@@ -599,7 +599,7 @@ export const getDoctorPatientScannedPrescriptions = async (req, res) => {
 
     // Verify doctor owns this patient
     const patient = await Patient.findById(patientId).select(
-      "doctorId clinicSlug"
+      "doctorId clinicSlug",
     );
     if (!patient) {
       return res.status(404).json({
@@ -611,7 +611,8 @@ export const getDoctorPatientScannedPrescriptions = async (req, res) => {
 
     // Check authorization: Patient must belong to this doctor
     if (
-      patient.doctorId.toString() !== req.doctor._id.toString() &&
+      (!patient.doctorId ||
+        patient.doctorId.toString() !== req.doctor._id.toString()) &&
       patient.clinicSlug !== req.doctor.clinicSlug
     ) {
       return res.status(403).json({
