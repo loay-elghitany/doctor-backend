@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
 import Secretary from "../models/Secretary.js";
@@ -556,6 +557,88 @@ export const getDoctorScannedPrescriptions = async (req, res) => {
     });
   } catch (error) {
     logger.error("getDoctorScannedPrescriptions error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error retrieving scanned prescriptions",
+      data: null,
+    });
+  }
+};
+
+/**
+ * Get scanned prescriptions for a specific patient (Doctor-only endpoint)
+ * Doctor can only view prescriptions for their own patients
+ */
+export const getDoctorPatientScannedPrescriptions = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Patient ID is required",
+        data: null,
+      });
+    }
+
+    if (!mongoose.isValidObjectId(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid patient ID format",
+        data: null,
+      });
+    }
+
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    // Verify doctor owns this patient
+    const patient = await Patient.findById(patientId).select(
+      "doctorId clinicSlug"
+    );
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
+        data: null,
+      });
+    }
+
+    // Check authorization: Patient must belong to this doctor
+    if (
+      patient.doctorId.toString() !== req.doctor._id.toString() &&
+      patient.clinicSlug !== req.doctor.clinicSlug
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to access this patient's prescriptions",
+        data: null,
+      });
+    }
+
+    const { page, limit, skip } = getPaginationParams(req.query);
+    const query = { patientId };
+
+    const totalItems = await ScannedPrescription.countDocuments(query);
+    const scannedPrescriptions = await ScannedPrescription.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Patient scanned prescriptions retrieved successfully",
+      data: scannedPrescriptions,
+      pagination: buildPagination(page, limit, totalItems),
+    });
+  } catch (error) {
+    logger.error("getDoctorPatientScannedPrescriptions error:", error);
     res.status(500).json({
       success: false,
       message: "Server error retrieving scanned prescriptions",

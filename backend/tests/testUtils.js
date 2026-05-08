@@ -122,6 +122,13 @@ export const setupAuthFixtures = async () => {
     doctorId: doctorA._id,
   });
 
+  const secretaryB = await createSecretary({
+    name: "Secretary B",
+    email: "secretaryB@example.com",
+    password: "secretaryBpass",
+    doctorId: doctorB._id,
+  });
+
   const doctorAToken = await loginDoctor({
     email: doctorA.email,
     password: "doctorApass",
@@ -141,6 +148,10 @@ export const setupAuthFixtures = async () => {
   const secretaryAToken = await loginSecretary({
     email: secretaryA.email,
     password: "secretaryApass",
+  });
+  const secretaryBToken = await loginSecretary({
+    email: secretaryB.email,
+    password: "secretaryBpass",
   });
 
   if (
@@ -162,11 +173,13 @@ export const setupAuthFixtures = async () => {
     patientA2,
     patientB1,
     secretaryA,
+    secretaryB,
     doctorAToken,
     doctorBToken,
     patientA1Token,
     patientB1Token,
     secretaryAToken,
+    secretaryBToken,
   };
 };
 

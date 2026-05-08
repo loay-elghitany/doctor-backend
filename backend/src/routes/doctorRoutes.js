@@ -8,7 +8,10 @@ import {
   getDoctorPublicProfile,
   updateDoctorClinicProfile,
 } from "../controllers/doctorController.js";
-import { getDoctorScannedPrescriptions } from "../controllers/patientController.js";
+import {
+  getDoctorScannedPrescriptions,
+  getDoctorPatientScannedPrescriptions,
+} from "../controllers/patientController.js";
 import Doctor from "../models/Doctor.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
@@ -63,6 +66,14 @@ router.get(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   getDoctorScannedPrescriptions,
+);
+
+// Get scanned prescriptions for a specific patient (doctor-only)
+router.get(
+  "/patients/:patientId/scanned-prescriptions",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getDoctorPatientScannedPrescriptions,
 );
 
 export default router;
