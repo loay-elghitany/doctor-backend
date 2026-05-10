@@ -9,6 +9,12 @@ import {
   updateDoctorClinicProfile,
 } from "../controllers/doctorController.js";
 import {
+  getPrivateNotes,
+  createPrivateNote,
+  updatePrivateNote,
+  deletePrivateNote,
+} from "../controllers/doctorPrivateNotesController.js";
+import {
   getDoctorScannedPrescriptions,
   getDoctorPatientScannedPrescriptions,
 } from "../controllers/patientController.js";
@@ -74,6 +80,35 @@ router.get(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   getDoctorPatientScannedPrescriptions,
+);
+
+// Private Notes routes (doctor-only)
+router.get(
+  "/patients/:patientId/private-notes",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getPrivateNotes,
+);
+
+router.post(
+  "/patients/:patientId/private-notes",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  createPrivateNote,
+);
+
+router.put(
+  "/patients/:patientId/private-notes/:noteId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  updatePrivateNote,
+);
+
+router.delete(
+  "/patients/:patientId/private-notes/:noteId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  deletePrivateNote,
 );
 
 export default router;
