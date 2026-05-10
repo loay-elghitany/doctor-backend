@@ -40,6 +40,7 @@ const notificationSchema = new mongoose.Schema(
         "prescription_created",
         "new_financial_plan",
         "NEW_PAYMENT_MADE",
+        "patient_registered",
       ],
       required: true,
       index: true,
