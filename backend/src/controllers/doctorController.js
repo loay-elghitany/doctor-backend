@@ -406,6 +406,102 @@ export const updateDoctorClinicProfile = async (req, res) => {
   }
 };
 
+export const updateDoctorCredentials = async (req, res) => {
+  try {
+    const doctorId = req.user?._id;
+    if (!doctorId) {
+      return res.status(401).json({
+        success: false,
+        message: "غير مصرح بالدخول",
+        data: null,
+      });
+    }
+
+    const { email, currentPassword, newPassword } = req.body || {};
+    const normalizedEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : undefined;
+    const requestedNewPassword =
+      typeof newPassword === "string" ? newPassword.trim() : "";
+
+    const doctor = await Doctor.findById(doctorId).select("+password");
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "المستخدم غير موجود",
+        data: null,
+      });
+    }
+
+    let hasUpdates = false;
+
+    if (normalizedEmail && normalizedEmail !== doctor.email) {
+      const emailExists = await Doctor.findOne({
+        email: normalizedEmail,
+        _id: { $ne: doctor._id },
+      });
+      if (emailExists) {
+        return res.status(400).json({
+          success: false,
+          message: "البريد الإلكتروني مستخدم بالفعل",
+          data: null,
+        });
+      }
+
+      doctor.email = normalizedEmail;
+      hasUpdates = true;
+    }
+
+    if (requestedNewPassword) {
+      if (!currentPassword || typeof currentPassword !== "string") {
+        return res.status(400).json({
+          success: false,
+          message: "كلمة المرور الحالية مطلوبة لتغيير كلمة المرور",
+          data: null,
+        });
+      }
+
+      const isCurrentPasswordValid = await doctor.matchPassword(
+        currentPassword,
+      );
+      if (!isCurrentPasswordValid) {
+        return res.status(400).json({
+          success: false,
+          message: "كلمة المرور الحالية غير صحيحة",
+          data: null,
+        });
+      }
+
+      doctor.password = requestedNewPassword;
+      hasUpdates = true;
+    }
+
+    if (!hasUpdates) {
+      return res.status(400).json({
+        success: false,
+        message: "لم يتم تقديم أي تغييرات",
+        data: null,
+      });
+    }
+
+    await doctor.save();
+
+    return res.json({
+      success: true,
+      message: "تم تحديث بيانات الحساب بنجاح",
+      data: {
+        email: doctor.email,
+      },
+    });
+  } catch (error) {
+    logger.error("updateDoctorCredentials", "Unexpected error", error);
+    return res.status(500).json({
+      success: false,
+      message: "خطأ في الخادم",
+      data: null,
+    });
+  }
+};
+
 export const getDoctorPublicProfile = async (req, res) => {
   try {
     // Read clinicSlug exclusively from query, params, or body
