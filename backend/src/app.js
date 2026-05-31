@@ -75,7 +75,7 @@ function isAllowedOrigin(origin) {
     // تصريح المرور لبيئة التطوير
     if (!isProduction) {
       if (url.protocol === "http:" && url.hostname.endsWith(".localhost")) {
-        return true; 
+        return true;
       }
     }
 

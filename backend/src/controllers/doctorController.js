@@ -460,9 +460,8 @@ export const updateDoctorCredentials = async (req, res) => {
         });
       }
 
-      const isCurrentPasswordValid = await doctor.matchPassword(
-        currentPassword,
-      );
+      const isCurrentPasswordValid =
+        await doctor.matchPassword(currentPassword);
       if (!isCurrentPasswordValid) {
         return res.status(400).json({
           success: false,
