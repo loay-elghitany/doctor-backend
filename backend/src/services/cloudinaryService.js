@@ -9,25 +9,17 @@ import logger from "../utils/logger.js";
 class CloudinaryService {
   constructor() {
     this.isConfigured = false;
+  }
 
-    if (
-      process.env.CLOUDINARY_CLOUD_NAME &&
-      process.env.CLOUDINARY_API_KEY &&
-      process.env.CLOUDINARY_API_SECRET
-    ) {
+  ensureConfigured() {
+    if (!this.isConfigured && process.env.CLOUDINARY_CLOUD_NAME) {
       cloudinary.config({
         cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
         api_key: process.env.CLOUDINARY_API_KEY,
         api_secret: process.env.CLOUDINARY_API_SECRET,
       });
-
       this.isConfigured = true;
       logger.info("CloudinaryService", "Cloudinary configured successfully");
-    } else {
-      logger.warn(
-        "CloudinaryService",
-        "Cloudinary not configured - missing environment variables",
-      );
     }
   }
 
@@ -74,9 +66,7 @@ class CloudinaryService {
    * @returns {Promise<boolean>} - True if deletion was successful
    */
   async deleteFile(cloudinaryUrl) {
-    if (!this.isConfigured) {
-      throw new Error("Cloudinary is not configured");
-    }
+    this.ensureConfigured();
 
     if (!cloudinaryUrl) {
       logger.warn("CloudinaryService", "No URL provided for deletion");
@@ -133,9 +123,7 @@ class CloudinaryService {
    * @returns {Promise<string>} - Cloudinary URL
    */
   async uploadBuffer(buffer, fileType, publicId = null) {
-    if (!this.isConfigured) {
-      throw new Error("Cloudinary is not configured");
-    }
+    this.ensureConfigured();
 
     try {
       const uploadOptions = {
