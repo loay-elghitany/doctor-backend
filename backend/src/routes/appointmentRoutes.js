@@ -11,6 +11,7 @@ import {
   chooseTime,
   cancelAppointment,
   toggleHideAppointment,
+  updateIntakeForm,
 } from "../controllers/appointmentController.js";
 
 const router = express.Router();
@@ -98,6 +99,20 @@ router.patch(
   requireRole(ROLES.PATIENT),
   tenantScope,
   toggleHideAppointment,
+);
+
+/**
+ * PATCH /api/appointments/:id/intake
+ * Secretary/Doctor adds or updates intake form (triage) for an appointment
+ * Protected: Secretary & Doctor roles only
+ * Body: { intakeForm: { chiefComplaint, vitals, medicalHistory, allergies, pregnancyOrLactation } }
+ * Returns: 200 with updated appointment or 404 if not found
+ */
+router.patch(
+  "/:id/intake",
+  universalAuth,
+  requireRole(ROLES.SECRETARY, ROLES.DOCTOR),
+  updateIntakeForm,
 );
 
 /**

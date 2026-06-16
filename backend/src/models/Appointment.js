@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { startOfDay, endOfDay } from "date-fns";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 
 const MAX_RESCHEDULE_OPTIONS = 5;
@@ -123,6 +124,52 @@ const appointmentSchema = new mongoose.Schema(
       default: false,
       index: false,
     },
+    // Intake form (triage) - optional data collected by secretary during patient intake
+    intakeForm: {
+      type: {
+        chiefComplaint: {
+          type: String,
+          default: "",
+        },
+        vitals: {
+          bloodPressure: {
+            type: String,
+            default: "",
+          },
+          diabetes: {
+            type: String,
+            default: "",
+          },
+        },
+        medicalHistory: {
+          smoking: {
+            type: Boolean,
+            default: false,
+          },
+          heartSurgeries: {
+            type: String,
+            default: "",
+          },
+          familyHeartHistory: {
+            type: String,
+            default: "",
+          },
+          chestProblems: {
+            type: String,
+            default: "",
+          },
+        },
+        allergies: {
+          type: String,
+          default: "",
+        },
+        pregnancyOrLactation: {
+          type: String,
+          default: "",
+        },
+      },
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -212,10 +259,14 @@ appointmentSchema.post("save", async function () {
     this.status !== APPOINTMENT_STATUS.CANCELLED &&
     this.status !== APPOINTMENT_STATUS.RESCHEDULE_PROPOSED
   ) {
+    const targetDate = new Date(this.date);
     const duplicates = await Appointment.countDocuments({
-      _id: { $ne: this._id }, // Exclude current appointment
+      _id: { $ne: this._id },
       doctorId: this.doctorId,
-      date: this.date,
+      date: {
+        $gte: startOfDay(targetDate),
+        $lte: endOfDay(targetDate),
+      },
       timeSlot: this.timeSlot,
       status: {
         $in: [
@@ -224,6 +275,7 @@ appointmentSchema.post("save", async function () {
           APPOINTMENT_STATUS.SCHEDULED,
         ],
       },
+      isDeleted: { $ne: true },
     });
 
     if (duplicates > 0) {

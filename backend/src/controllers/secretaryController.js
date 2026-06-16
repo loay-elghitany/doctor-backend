@@ -220,7 +220,8 @@ export const getSecretaryPatients = async (req, res) => {
 
 export const createPatientUnderDoctor = async (req, res) => {
   try {
-    const { name, email, password, phoneNumber, clinicSlug } = req.body;
+    const { name, email, password, phoneNumber, clinicSlug, medicalHistory } =
+      req.body;
     logger.debug("createPatientUnderDoctor: auth objects", {
       user: req.user,
       secretary: req.secretary,
@@ -246,36 +247,43 @@ export const createPatientUnderDoctor = async (req, res) => {
       });
     }
 
-    if (!name || !email || !password || !clinicSlug) {
+    // For secretary flow, require name and phoneNumber only; email/password/clinicSlug are auto-resolved
+    if (!name || !name.trim() || !phoneNumber || !String(phoneNumber).trim()) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, password, and clinicSlug are required",
+        message: "Name and phoneNumber are required",
         data: null,
       });
     }
 
-    // Verify clinicSlug matches the doctor's clinic
+    // Resolve doctor and clinicSlug from doctorId
     const doctor = await Doctor.findById(doctorId);
-    if (!doctor || doctor.clinicSlug !== clinicSlug) {
-      return res.status(403).json({
+    if (!doctor) {
+      return res.status(404).json({
         success: false,
-        message: "Invalid clinic access",
+        message: "Associated doctor not found",
         data: null,
       });
     }
+
+    const finalPhone = String(phoneNumber).trim();
+    const resolvedClinicSlug = doctor.clinicSlug;
+    const generatedEmail = `${finalPhone}@mydoc90.local`; // تعديل نظيف وصافي
+    const generatedPassword = `Pt@${finalPhone}`;
 
     const patient = await createPatientRecord({
-      name,
-      email,
-      password,
-      clinicSlug,
-      phoneNumber,
+      name: name.trim(),
+      email: generatedEmail,
+      password: generatedPassword,
+      clinicSlug: resolvedClinicSlug,
+      phoneNumber: finalPhone,
       doctorId,
+      medicalHistory,
     });
 
     try {
       const { password: _, ...patientSafeData } = patient.toObject();
-      await notifyStaffNewPatient(clinicSlug, patientSafeData);
+      await notifyStaffNewPatient(resolvedClinicSlug, patientSafeData);
     } catch (notificationError) {
       logger.error(
         "[createPatientUnderDoctor] Failed to notify staff of new patient:",

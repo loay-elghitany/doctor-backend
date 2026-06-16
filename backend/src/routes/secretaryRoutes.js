@@ -27,11 +27,11 @@ router.get(
   getSecretaryProfile,
 );
 
-// Patient management for secretaries
+// Patient management for secretaries and doctors
 router.post(
   "/patients",
   universalAuth,
-  requireRole(ROLES.SECRETARY),
+  requireRole(ROLES.SECRETARY, ROLES.DOCTOR),
   createPatientUnderDoctor,
 );
 

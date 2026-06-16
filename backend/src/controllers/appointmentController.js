@@ -2,7 +2,7 @@ import Appointment from "../models/Appointment.js";
 import Doctor from "../models/Doctor.js";
 import Patient from "../models/Patient.js";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
-import { isPast, parseISO } from "date-fns";
+import { parseISO, startOfDay, endOfDay, isBefore, isValid } from "date-fns";
 import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
@@ -31,6 +31,65 @@ const isValidTimeSlot = (timeSlot) => {
 };
 
 /**
+ * Format a date label without mutating the source Date instance.
+ */
+const formatLocalDateLabel = (dateInput, locale = "ar-EG") => {
+  const instance =
+    dateInput instanceof Date
+      ? new Date(dateInput.getTime())
+      : new Date(dateInput);
+  return instance.toLocaleDateString(locale);
+};
+
+/**
+ * Normalize secretary/patient intake form payload into the appointment schema shape.
+ */
+const parseIntakeForm = (raw) => {
+  if (!raw || typeof raw !== "object") return null;
+
+  const chiefComplaint = String(raw.chiefComplaint || "").trim();
+  const bloodPressure = String(
+    raw.vitals?.bloodPressure || raw.bloodPressure || "",
+  ).trim();
+  const diabetes = String(
+    raw.vitals?.diabetes || raw.diabetesLevel || raw.diabetes || "",
+  ).trim();
+
+  const medicalHistory = {
+    smoking: Boolean(raw.medicalHistory?.smoking),
+    heartSurgeries: String(raw.medicalHistory?.heartSurgeries || "").trim(),
+    familyHeartHistory: String(
+      raw.medicalHistory?.familyHeartHistory || "",
+    ).trim(),
+    chestProblems: String(raw.medicalHistory?.chestProblems || "").trim(),
+  };
+
+  const allergies = String(raw.allergies || "").trim();
+  const pregnancyOrLactation = String(raw.pregnancyOrLactation || "").trim();
+
+  const hasContent =
+    chiefComplaint ||
+    bloodPressure ||
+    diabetes ||
+    medicalHistory.smoking ||
+    medicalHistory.heartSurgeries ||
+    medicalHistory.familyHeartHistory ||
+    medicalHistory.chestProblems ||
+    allergies ||
+    pregnancyOrLactation;
+
+  if (!hasContent) return null;
+
+  return {
+    chiefComplaint,
+    vitals: { bloodPressure, diabetes },
+    medicalHistory,
+    allergies,
+    pregnancyOrLactation,
+  };
+};
+
+/**
  * Check for booking conflicts
  * Returns true if a slot is already booked for this doctor on this date
  */
@@ -40,11 +99,16 @@ const hasBookingConflict = async (
   timeSlot,
   excludeAppointmentId = null,
 ) => {
+  const targetDate =
+    date instanceof Date ? new Date(date.getTime()) : new Date(date);
+  const startOfTargetDay = startOfDay(targetDate);
+  const endOfTargetDay = endOfDay(targetDate);
+
   const query = {
     doctorId,
     date: {
-      $gte: new Date(date).setHours(0, 0, 0, 0),
-      $lt: new Date(date).setHours(23, 59, 59, 999),
+      $gte: startOfTargetDay,
+      $lte: endOfTargetDay,
     },
     timeSlot,
     status: {
@@ -54,6 +118,7 @@ const hasBookingConflict = async (
         APPOINTMENT_STATUS.SCHEDULED,
       ],
     },
+    isDeleted: { $ne: true },
   };
 
   if (excludeAppointmentId) {
@@ -62,6 +127,166 @@ const hasBookingConflict = async (
 
   const conflict = await Appointment.findOne(query);
   return !!conflict;
+};
+
+/**
+ * Fire-and-forget notification pipeline after appointment creation.
+ */
+const runPostCreateNotifications = async ({
+  appointment,
+  role,
+  tenantId,
+  patientId,
+  userId,
+  date,
+  parsedDate,
+  timeSlot,
+  notes,
+  req,
+}) => {
+  try {
+    await createTimelineEvent({
+      patientId,
+      doctorId: tenantId,
+      appointmentId: appointment._id,
+      eventType: "appointment_created",
+      eventTitle:
+        role === "secretary" ? "Walk-in Appointment Scheduled" : "Appointment Requested",
+      eventDescription: `Appointment scheduled for ${formatLocalDateLabel(parsedDate)} at ${timeSlot}`,
+      eventStatus: role === "secretary" ? "scheduled" : "pending",
+      visibility: "patient_visible",
+      metadata: {
+        date: parsedDate,
+        timeSlot,
+        notes: notes || "",
+      },
+    });
+  } catch (timelineError) {
+    logger.error(
+      "[createAppointment] Failed to create timeline event:",
+      timelineError.message,
+    );
+  }
+
+  try {
+    const patient = await Patient.findById(patientId);
+    const doctorFromDb = await Doctor.findById(tenantId);
+
+    if (!patient || !doctorFromDb) return;
+
+    const doctorName = doctorFromDb.name || "الدكتور";
+    const patientName = patient.name || "المريض";
+    const patientPhone = patient.phoneNumber || "غير متوفر";
+    const dateLabel = formatLocalDateLabel(parsedDate);
+    const formattedDate = formatLocalDateLabel(parsedDate, "ar-SA");
+
+    const doctorMessage = `طلب موعد جديد 🔔. المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ المطلوب: ${dateLabel} | ⌚ الوقت: ${timeSlot}.`;
+    const patientMessage = `مرحباً ${patientName}، تم استلام طلب موعدك مع د. ${doctorName} 📅.`;
+
+    await Promise.allSettled([
+      createAndSendNotification({
+        recipientId: tenantId,
+        recipientType: "Doctor",
+        type: "appointment_created",
+        title: "حجز موعد جديد",
+        message: doctorMessage,
+        appointmentId: appointment._id,
+        doctorId: tenantId,
+        patientId,
+        actionUrl: `/doctor/appointments`,
+      }),
+      createAndSendNotification({
+        recipientId: patientId,
+        recipientType: "Patient",
+        type: "appointment_created",
+        title: "تم تأكيد الموعد",
+        message: patientMessage,
+        appointmentId: appointment._id,
+        doctorId: tenantId,
+        patientId,
+        actionUrl: `/patient/appointments/${appointment._id}`,
+      }),
+    ]);
+
+    if (role === "secretary") {
+      await createInAppNotification({
+        recipient: tenantId,
+        recipientRole: "doctor",
+        recipientClinicSlug: doctorFromDb.clinicSlug || "",
+        sender: userId,
+        senderRole: "secretary",
+        senderName: req.user?.name || "السكرتيرة",
+        type: "APPOINTMENT_CONFIRMED",
+        category: "appointment",
+        title: "حجز موعد من السكرتارية",
+        message: `قامت السكرتيرة بحجز وتأكيد موعد للمريض ${patientName} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+        link: `/appointments/${appointment._id}`,
+        linkType: "appointment",
+        appointmentId: appointment._id,
+        patientId,
+        doctorId: tenantId,
+      });
+
+      await createInAppNotification({
+        recipient: patientId,
+        recipientRole: "patient",
+        recipientClinicSlug: doctorFromDb.clinicSlug || "",
+        sender: tenantId,
+        senderRole: "doctor",
+        senderName: doctorFromDb.name,
+        type: "APPOINTMENT_CONFIRMED",
+        category: "appointment",
+        title: "موعد جديد مؤكد",
+        message: `تم حجز موعد مؤكد لك في عيادة د. ${doctorFromDb.name} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
+        link: `/appointments/${appointment._id}`,
+        linkType: "appointment",
+        appointmentId: appointment._id,
+        patientId,
+        doctorId: tenantId,
+      });
+    } else if (role === "patient") {
+      try {
+        emitNewAppointmentToStaff(
+          doctorFromDb.clinicSlug || "",
+          patientName,
+          formattedDate,
+        );
+        await notifyStaffNewAppointment(
+          doctorFromDb.clinicSlug || "",
+          appointment,
+          patient,
+        );
+      } catch (staffError) {
+        logger.error(
+          "[createAppointment] Staff socket notification error:",
+          staffError.message,
+        );
+      }
+
+      await createInAppNotification({
+        recipient: patientId,
+        recipientRole: "patient",
+        recipientClinicSlug: doctorFromDb.clinicSlug || "",
+        sender: tenantId,
+        senderRole: "doctor",
+        senderName: doctorFromDb.name,
+        type: "NEW_APPOINTMENT",
+        category: "appointment",
+        title: "تم استلام طلبك",
+        message: "جاري مراجعة طلب حجز الموعد من قبل العيادة.",
+        link: `/appointments/${appointment._id}`,
+        linkType: "appointment",
+        appointmentId: appointment._id,
+        patientId,
+        doctorId: tenantId,
+      });
+    }
+  } catch (notificationError) {
+    logger.error(
+      "[createAppointment] Background alerts pipeline error:",
+      notificationError.message,
+    );
+  }
 };
 
 /**
@@ -78,14 +303,19 @@ export const createAppointment = async (req, res) => {
       notes,
       patientId: requestedPatientId,
       doctorId: requestedDoctorId,
+      intakeForm,
     } = req.body;
 
     const role = req.user?.role;
     const userId = req.user?._id;
+    const resolvedTenantId = req.tenantId || req.user?.doctorId || null;
+
     logger.debug("createAppointment: role details", {
       role,
       userId,
+      tenantId: req.tenantId,
       doctorId: req.user?.doctorId,
+      resolvedTenantId,
       requestedPatientId,
       requestedDoctorId,
     });
@@ -106,10 +336,10 @@ export const createAppointment = async (req, res) => {
           };
         }
 
-        return { tenantId: req.tenantId, patientId };
+        return { tenantId: resolvedTenantId, patientId };
       },
       secretary: async () => {
-        const tenantId = req.tenantId;
+        const tenantId = resolvedTenantId;
         const patientId = requestedPatientId;
 
         if (!tenantId) {
@@ -168,7 +398,6 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Guard: Ensure required parameters
     if (!date) {
       return res.status(400).json({
         success: false,
@@ -177,7 +406,6 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Guard: Validate time slot format
     if (!isValidTimeSlot(timeSlot)) {
       return res.status(400).json({
         success: false,
@@ -186,11 +414,8 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Parse and validate date
-    let parsedDate;
-    try {
-      parsedDate = parseISO(date);
-    } catch (err) {
+    const parsedDate = parseISO(date);
+    if (!isValid(parsedDate)) {
       return res.status(400).json({
         success: false,
         message: "Invalid date format. Use ISO 8601 (e.g., 2026-02-06).",
@@ -198,17 +423,15 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // Prevent past appointments
-    if (isPast(parsedDate)) {
+    const today = startOfDay(new Date());
+    const targetAppointmentDate = startOfDay(parsedDate);
+    if (isBefore(targetAppointmentDate, today)) {
       return res.status(400).json({
         success: false,
         message: "Cannot create an appointment in the past.",
         data: null,
       });
     }
-
-    let tenantId;
-    let patientId;
 
     const appointmentContext = await resolveAppointmentContext[role]();
     if (appointmentContext?.error) {
@@ -217,7 +440,8 @@ export const createAppointment = async (req, res) => {
         .json(appointmentContext.error.body);
     }
 
-    ({ tenantId, patientId } = appointmentContext);
+    let { tenantId, patientId } = appointmentContext;
+    tenantId = tenantId || req.tenantId || req.user?.doctorId || null;
 
     if (!tenantId) {
       return res.status(400).json({
@@ -228,7 +452,6 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // NEW: Check if doctor subscription is active
     const doctor = await Doctor.findById(tenantId);
     if (!doctor) {
       return res.status(404).json({
@@ -253,7 +476,13 @@ export const createAppointment = async (req, res) => {
       patientId,
     });
 
-    const conflict = await hasBookingConflict(tenantId, parsedDate, timeSlot);
+    const normalizedDate = startOfDay(parsedDate);
+
+    const conflict = await hasBookingConflict(
+      tenantId,
+      normalizedDate,
+      timeSlot,
+    );
     if (conflict) {
       return res.status(409).json({
         success: false,
@@ -263,240 +492,39 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    const appointmentPayload = {
+    const appointment = await Appointment.create({
       doctorId: tenantId,
       patientId,
-      date: parsedDate,
+      date: normalizedDate,
       timeSlot,
       notes,
+      intakeForm: intakeForm || {},
+      status:
+        role === "secretary"
+          ? APPOINTMENT_STATUS.SCHEDULED
+          : APPOINTMENT_STATUS.PENDING,
       createdBy: role === "secretary" ? "secretary" : "patient",
       createdById: userId,
       createdByRef: role === "secretary" ? "Secretary" : "Patient",
-    };
+    });
 
-    if (role === "secretary") {
-      appointmentPayload.status = APPOINTMENT_STATUS.SCHEDULED;
-    }
-
-    const appointment = await Appointment.create(appointmentPayload);
-
-    // Auto-create timeline event for new appointment
     try {
-      await createTimelineEvent({
-        patientId,
-        doctorId: tenantId,
-        appointmentId: appointment._id,
-        eventType: "appointment_created",
-        eventTitle: "Appointment Scheduled",
-        eventDescription: `Appointment scheduled for ${parsedDate.toLocaleDateString()} at ${timeSlot}`,
-        eventStatus: "pending",
-        visibility: "patient_visible",
-        metadata: {
-          date: parsedDate,
-          timeSlot: timeSlot,
-          notes: notes || "",
-        },
-      });
-    } catch (timelineError) {
-      logger.error(
-        "[createAppointment] Failed to create timeline event:",
-        timelineError.message,
-      );
-      // Don't fail the appointment creation if timeline event fails
-    }
-
-    // Send WhatsApp notification to doctor and patient about new appointment (Scenario 1)
-    try {
-      const patient = await Patient.findById(patientId);
-      const doctorFromDb = await Doctor.findById(tenantId);
-
-      const doctorName = doctorFromDb?.name || "الدكتور";
-      const patientName = patient?.name || "المريض";
-      const patientPhone = patient?.phoneNumber || "غير متوفر";
-      const doctorPhone = doctorFromDb?.phoneNumber || "غير متوفر";
-      const dateLabel = parsedDate.toLocaleDateString("ar-EG");
-
-      const doctorMessage = `طلب موعد جديد 🔔. المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ المطلوب: ${dateLabel} | ⌚ الوقت: ${timeSlot}. الرجاء تسجيل الدخول للمنصة للموافقة أو الرفض أو اقتراح موعد بديل.`;
-
-      const patientMessage = `مرحباً ${patientName}، تم استلام طلب موعدك مع د. ${doctorName} 📅. ⏰ التاريخ: ${dateLabel} | ⌚ الوقت: ${timeSlot}. طلبك قيد المراجعة وسنبلغك فور تأكيد الطبيب.`;
-
-      const doctorNotification = createAndSendNotification({
-        recipientId: tenantId,
-        recipientType: "Doctor",
-        type: "appointment_created",
-        title: "حجز موعد جديد",
-        message: doctorMessage,
-        appointmentId: appointment._id,
-        doctorId: tenantId,
-        patientId,
-        actionUrl: `/doctor/appointments`,
-        metadata: {
-          patientName,
-          patientPhone,
-          date: parsedDate,
-          timeSlot,
-          notes,
-        },
-      });
-
-      const patientNotification = createAndSendNotification({
-        recipientId: patientId,
-        recipientType: "Patient",
-        type: "appointment_created",
-        title: "تم تأكيد الموعد",
-        message: patientMessage,
-        appointmentId: appointment._id,
-        doctorId: tenantId,
-        patientId,
-        actionUrl: `/patient/appointments/${appointment._id}`,
-        metadata: {
-          doctorName,
-          doctorPhone,
-          date: parsedDate,
-          timeSlot,
-          notes,
-        },
-      });
-
-      await Promise.allSettled([doctorNotification, patientNotification]);
-
-      // Emit real-time Socket.io notifications
-      const formattedDate = parsedDate.toLocaleDateString("ar-SA");
-
-      // Log clinicSlug details for debugging room name mismatch
-      const targetRoom = `clinic_${doctorFromDb.clinicSlug}_staff`;
-      console.log(
-        "[Socket:Controller] ============================================",
-      );
-      console.log("[Socket:Controller] PREPARING TO EMIT NOTIFICATION");
-      console.log("[Socket:Controller] - doctorFromDb._id:", tenantId);
-      console.log(
-        "[Socket:Controller] - doctorFromDb.name:",
-        doctorFromDb.name,
-      );
-      console.log(
-        "[Socket:Controller] - doctorFromDb.clinicSlug:",
-        doctorFromDb.clinicSlug,
-      );
-      console.log("[Socket:Controller] - COMPUTED TARGET ROOM:", targetRoom);
-      console.log("[Socket:Controller] - patientName:", patientName);
-      console.log("[Socket:Controller] - patientId:", patientId.toString());
-      console.log("[Socket:Controller] - formattedDate:", formattedDate);
-
-      if (role === "secretary") {
-        // Notify Doctor: Secretary created and confirmed appointment
-        console.log(
-          "[Socket:Controller] Notifying doctor about secretary-created appointment...",
-        );
-        await createInAppNotification({
-          recipient: tenantId,
-          recipientRole: "doctor",
-          recipientClinicSlug: doctorFromDb.clinicSlug,
-          sender: userId,
-          senderRole: "secretary",
-          senderName: req.user?.name || "السكرتيرة",
-          type: "APPOINTMENT_CONFIRMED",
-          category: "appointment",
-          title: "حجز موعد من السكرتارية",
-          message: `قامت السكرتيرة بحجز وتأكيد موعد للمريض ${patientName} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
-          link: `/appointments/${appointment._id}`,
-          linkType: "appointment",
-          appointmentId: appointment._id,
-          patientId: patientId,
-          doctorId: tenantId,
+      if (intakeForm?.medicalHistory) {
+        await Patient.findByIdAndUpdate(patientId, {
+          $set: {
+            "medicalHistory.smoking": !!intakeForm.medicalHistory.smoking,
+            "medicalHistory.heartSurgeries":
+              intakeForm.medicalHistory.heartSurgeries || "",
+            "medicalHistory.chestProblems":
+              intakeForm.medicalHistory.chestProblems || "",
+          },
         });
-
-        // Notify Patient: Appointment confirmed by secretary
-        console.log(
-          "[Socket:Controller] Notifying patient about confirmed appointment...",
-        );
-        await createInAppNotification({
-          recipient: patientId,
-          recipientRole: "patient",
-          recipientClinicSlug: doctorFromDb.clinicSlug,
-          sender: tenantId,
-          senderRole: "doctor",
-          senderName: doctorFromDb.name,
-          type: "APPOINTMENT_CONFIRMED",
-          category: "appointment",
-          title: "موعد جديد مؤكد",
-          message: `تم حجز موعد مؤكد لك في عيادة د. ${doctorFromDb.name} يوم ${formattedDate} الساعة ${appointment.timeSlot}`,
-          link: `/appointments/${appointment._id}`,
-          linkType: "appointment",
-          appointmentId: appointment._id,
-          patientId: patientId,
-          doctorId: tenantId,
-        });
-      } else if (role === "patient") {
-        // Notify Staff about new appointment request (wrapped in try-catch)
-        try {
-          console.log(
-            "[Socket:Controller] Calling emitNewAppointmentToStaff with clinicSlug:",
-            doctorFromDb.clinicSlug,
-          );
-          emitNewAppointmentToStaff(
-            doctorFromDb.clinicSlug,
-            patientName,
-            formattedDate,
-          );
-
-          // Create persistent notification for staff
-          console.log(
-            "[Socket:Controller] Creating persistent notification for staff...",
-          );
-          await notifyStaffNewAppointment(
-            doctorFromDb.clinicSlug,
-            appointment,
-            patient,
-          );
-        } catch (staffNotificationError) {
-          logger.error(
-            "[createAppointment] Failed to notify staff:",
-            staffNotificationError.message,
-          );
-          // Don't fail the appointment creation if staff notification fails
-        }
-
-        // Notify Patient: Appointment request received and is under review
-        try {
-          console.log(
-            "[Socket:Controller] Notifying patient of appointment request receipt...",
-          );
-          await createInAppNotification({
-            recipient: patientId,
-            recipientRole: "patient",
-            recipientClinicSlug: doctorFromDb.clinicSlug,
-            sender: tenantId,
-            senderRole: "doctor",
-            senderName: doctorFromDb.name,
-            type: "NEW_APPOINTMENT",
-            category: "appointment",
-            title: "تم استلام طلبك",
-            message: "جاري مراجعة طلب حجز الموعد من قبل العيادة.",
-            link: `/appointments/${appointment._id}`,
-            linkType: "appointment",
-            appointmentId: appointment._id,
-            patientId: patientId,
-            doctorId: tenantId,
-          });
-        } catch (patientNotificationError) {
-          logger.error(
-            "[createAppointment] Failed to notify patient of request receipt:",
-            patientNotificationError.message,
-          );
-          // Don't fail the appointment creation if patient notification fails
-        }
       }
-
-      console.log(
-        "[Socket:Controller] ============================================",
-      );
-    } catch (notificationError) {
+    } catch (patientSyncError) {
       logger.error(
-        "[createAppointment] Failed to send notifications:",
-        notificationError.message,
+        "[createAppointment] Patient medical history sync skipped:",
+        patientSyncError.message,
       );
-      // Don't fail the appointment creation if notification fails
     }
 
     res.status(201).json({
@@ -504,13 +532,37 @@ export const createAppointment = async (req, res) => {
       message: "Appointment created successfully.",
       data: appointment,
     });
+
+    (async () => {
+      try {
+        await runPostCreateNotifications({
+          appointment,
+          role,
+          tenantId,
+          patientId,
+          userId,
+          date,
+          parsedDate: normalizedDate,
+          timeSlot,
+          notes,
+          req,
+        });
+      } catch (backgroundError) {
+        logger.error(
+          "[createAppointment] Background notification pipeline failed:",
+          backgroundError.message,
+        );
+      }
+    })();
   } catch (error) {
     logger.error("UnexpectedError", error);
-    res.status(500).json({
-      success: false,
-      message: "An unexpected error occurred.",
-      data: null,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: "An unexpected error occurred.",
+        data: null,
+      });
+    }
   }
 };
 
@@ -1228,6 +1280,64 @@ export const toggleHideAppointment = async (req, res) => {
     });
   } catch (error) {
     logger.error("UnexpectedError", error);
+    res.status(500).json({
+      success: false,
+      message: "An unexpected error occurred.",
+      data: null,
+    });
+  }
+};
+
+/**
+ * Update or add intake form (triage) to an existing appointment
+ * Secretary/Doctor can add/update triage data
+ * Protected: Secretary & Doctor roles only
+ * PATCH /api/appointments/:id/intake
+ * Body: { intakeForm: { chiefComplaint, vitals, medicalHistory, allergies, pregnancyOrLactation } }
+ */
+export const updateIntakeForm = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { intakeForm } = req.body;
+
+    if (!intakeForm) {
+      return res.status(400).json({
+        success: false,
+        message: "Intake form data is required.",
+        data: null,
+      });
+    }
+
+    // Find appointment
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found.",
+        data: null,
+      });
+    }
+
+    // Verify tenant isolation - appointment must belong to user's clinic
+    if (appointment.doctorId.toString() !== req.user?.doctorId?.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to modify this appointment.",
+        data: null,
+      });
+    }
+
+    // Update intake form
+    appointment.intakeForm = intakeForm;
+    await appointment.save();
+
+    res.json({
+      success: true,
+      message: "Intake form updated successfully.",
+      data: appointment,
+    });
+  } catch (error) {
+    logger.error("updateIntakeForm: UnexpectedError", error);
     res.status(500).json({
       success: false,
       message: "An unexpected error occurred.",

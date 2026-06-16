@@ -4,6 +4,8 @@ import {
   getAppointmentPrescriptions,
   getDoctorPrescriptions,
   deletePrescription,
+  processVoicePrescription,
+  getDrugAlternatives,
 } from "../controllers/prescriptionController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
@@ -22,7 +24,37 @@ const router = express.Router();
  * Doctor-only endpoint
  * Body: { appointmentId, medications, diagnosis, notes }
  */
-router.post("/", strictPostLimiter, universalAuth, requireRole(ROLES.DOCTOR), createPrescription);
+router.post(
+  "/",
+  strictPostLimiter,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  createPrescription,
+);
+
+/**
+ * POST /api/prescriptions/process-voice
+ * Convert raw voice transcript into structured prescription payload
+ */
+router.post(
+  "/process-voice",
+  strictPostLimiter,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  processVoicePrescription,
+);
+
+/**
+ * GET /api/prescriptions/alternatives?name=...
+ * Return 3 AI-recommended replacement brands for the medication
+ */
+router.get(
+  "/alternatives",
+  strictPostLimiter,
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getDrugAlternatives,
+);
 
 /**
  * GET /api/prescriptions/doctor

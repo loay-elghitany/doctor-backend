@@ -191,8 +191,8 @@ app.use(generalLimiter);
 // ============================================
 // BODY PARSER (before routes, after CORS/Security)
 // ============================================
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "15mb" }));
+app.use(express.urlencoded({ extended: true, limit: "15mb" }));
 
 // ============================================
 // ROUTES (Rate limiting is applied INSIDE route files)

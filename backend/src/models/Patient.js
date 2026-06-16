@@ -56,6 +56,19 @@ const patientSchema = new mongoose.Schema(
       default: null,
       sparse: true,
     },
+    // Initial medical intake / checklist (optional)
+    medicalHistory: {
+      hypertension: { type: Boolean, default: false },
+      diabetes: { type: Boolean, default: false },
+      pregnancy: { type: Boolean, default: false },
+      allergy: {
+        hasAllergy: { type: Boolean, default: false },
+        details: { type: String, default: "" },
+      },
+      smoking: { type: Boolean, default: false },
+      heartDisease: { type: Boolean, default: false },
+      chestProblems: { type: Boolean, default: false },
+    },
   },
   {
     timestamps: true,

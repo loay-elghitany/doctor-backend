@@ -232,6 +232,7 @@ const buildPatientPayload = ({
   phoneNumber,
   doctorId,
   clinicSlug,
+  medicalHistory,
 }) => ({
   name,
   email,
@@ -239,6 +240,7 @@ const buildPatientPayload = ({
   phoneNumber,
   doctorId,
   clinicSlug,
+  medicalHistory: medicalHistory || undefined,
 });
 
 export const createPatientRecord = async ({
@@ -248,13 +250,27 @@ export const createPatientRecord = async ({
   phoneNumber,
   doctorId,
   clinicSlug,
+  medicalHistory,
 }) => {
-  const existing = await Patient.findOne({ email });
-  if (existing) {
-    const error = new Error("Email already used");
-    error.status = 400;
-    throw error;
+  // Ensure uniqueness by email OR phoneNumber to prevent duplicates
+  if (email) {
+    const existingByEmail = await Patient.findOne({ email });
+    if (existingByEmail) {
+      const error = new Error("Email already used");
+      error.status = 400;
+      throw error;
+    }
   }
+
+  if (phoneNumber) {
+    const existingByPhone = await Patient.findOne({ phoneNumber });
+    if (existingByPhone) {
+      const error = new Error("Phone number already used");
+      error.status = 400;
+      throw error;
+    }
+  }
+
   return Patient.create(
     buildPatientPayload({
       name,
@@ -263,6 +279,7 @@ export const createPatientRecord = async ({
       phoneNumber,
       doctorId,
       clinicSlug,
+      medicalHistory,
     }),
   );
 };
@@ -271,7 +288,7 @@ export const createPatientRecord = async ({
 export const registerPatient = async (req, res) => {
   try {
     const clinicSlug = req.params.clinicSlug || req.body.clinicSlug;
-    const { name, email, password, phoneNumber } = req.body;
+    const { name, email, password, phoneNumber, medicalHistory } = req.body;
 
     const authResult = await loadOptionalAuthenticatedUser(req);
     if (authResult.error) {
@@ -290,13 +307,25 @@ export const registerPatient = async (req, res) => {
       userRole: req.user?.role,
     });
 
-    const validation = validatePatientRegistration({ name, email, password });
-    if (!validation.valid) {
-      return res.status(400).json({
-        success: false,
-        message: validation.message,
-        data: null,
-      });
+    // Secretary-driven registration: allow missing email/password and generate silent fallbacks
+    if (req.user && req.user.role === "secretary") {
+      if (!name || !name.trim() || !phoneNumber || !phoneNumber.trim()) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Name and phoneNumber are required for secretary registration",
+          data: null,
+        });
+      }
+    } else {
+      const validation = validatePatientRegistration({ name, email, password });
+      if (!validation.valid) {
+        return res.status(400).json({
+          success: false,
+          message: validation.message,
+          data: null,
+        });
+      }
     }
 
     const resolution = await resolvePatientDoctorId(req, clinicSlug);
@@ -322,22 +351,24 @@ export const registerPatient = async (req, res) => {
       source: resolution.source,
     });
 
-    const existing = await Patient.findOne({ email });
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        message: "Email already used",
-        data: null,
-      });
+    // If secretary is creating the patient, silently generate email/password/fallbacks
+    let finalEmail = email;
+    let finalPassword = password;
+    let finalPhone = phoneNumber;
+    if (req.user && req.user.role === "secretary") {
+      finalPhone = String(phoneNumber || "").trim();
+      finalEmail = `${finalPhone}@mydoc90.local`; // تعديل نظيف وصافي
+      finalPassword = `Pt@${finalPhone}`;
     }
 
     const patientPayload = buildPatientPayload({
       name,
-      email,
-      password,
-      phoneNumber,
+      email: finalEmail,
+      password: finalPassword,
+      phoneNumber: finalPhone,
       doctorId,
       clinicSlug: resolution.clinicSlug,
+      medicalHistory,
     });
 
     const patient = await Patient.create(patientPayload);

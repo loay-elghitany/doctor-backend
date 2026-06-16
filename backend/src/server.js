@@ -1,12 +1,21 @@
 import dotenv from "dotenv";
+
+dotenv.config({ path: process.env.DOTENV_PATH || `${process.cwd()}/.env` });
+
+console.log(
+  "Gemini Key Verify:",
+  !!process.env.GEMINI_API_KEY,
+  "(envPath=",
+  process.env.DOTENV_PATH || `${process.cwd()}/.env`,
+  ")",
+);
+
 import http from "http";
 import connectDB from "./config/db.js";
 import app from "./app.js";
 import logger from "./utils/logger.js";
 import { initializeSocket } from "./utils/socketManager.js";
 import { initializeTelegramBotListener } from "./services/telegramBotListener.js";
-
-dotenv.config();
 
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
 const isProduction = process.env.NODE_ENV === "production";
@@ -42,6 +51,8 @@ const PORT = process.env.PORT || 5000;
 
 // Create HTTP server from Express app
 const httpServer = http.createServer(app);
+httpServer.setTimeout(300000); // extend Node server timeout to 5 minutes for heavy /api/prescriptions/process-voice runs
+httpServer.keepAliveTimeout = 300000;
 
 // Initialize Socket.io
 initializeSocket(httpServer);

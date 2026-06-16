@@ -15,6 +15,11 @@ import {
   deletePrivateNote,
 } from "../controllers/doctorPrivateNotesController.js";
 import {
+  getPrivateFiles,
+  createPrivateFile,
+  deletePrivateFile,
+} from "../controllers/doctorPrivateFilesController.js";
+import {
   getDoctorScannedPrescriptions,
   getDoctorPatientScannedPrescriptions,
 } from "../controllers/patientController.js";
@@ -109,6 +114,28 @@ router.delete(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   deletePrivateNote,
+);
+
+// Private Files routes (doctor-only)
+router.get(
+  "/patients/:patientId/private-files",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getPrivateFiles,
+);
+
+router.post(
+  "/patients/:patientId/private-files",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  createPrivateFile,
+);
+
+router.delete(
+  "/private-files/:fileId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  deletePrivateFile,
 );
 
 export default router;
