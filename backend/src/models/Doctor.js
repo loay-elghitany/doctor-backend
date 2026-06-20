@@ -146,6 +146,12 @@ const doctorSchema = new mongoose.Schema(
       default: "free",
     },
 
+    // 🌟 تاريخ انتهاء الاشتراك التنازلي
+    subscriptionExpiresAt: {
+      type: Date,
+      default: null, // null يعني الحساب مجاني مفتوح أو لسه مستني تفعيل
+    },
+
     // Manual account management flags
     // Used by admin to deactivate/reactivate doctor accounts
     // When isActive=false, doctor cannot create new appointments

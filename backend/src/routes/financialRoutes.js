@@ -14,6 +14,7 @@ import {
   deletePayment,
   getPatientFinancialSummary,
 } from "../controllers/financialController.js";
+import { protectSubscription } from "../middleware/subscriptionCheckMiddleware.js";
 
 const router = express.Router();
 
@@ -23,26 +24,38 @@ router.post(
   "/plans",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
   createTreatmentPlan,
+  protectSubscription,
 );
 router.get(
   "/patients/:patientId/plans",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),
   listTreatmentPlansByPatient,
 );
-router.put("/plans/:planId", requireRole(ROLES.DOCTOR), updateTreatmentPlan);
+router.put(
+  "/plans/:planId",
+  requireRole(ROLES.DOCTOR),
+  updateTreatmentPlan,
+  protectSubscription,
+);
 router.delete("/plans/:planId", requireRole(ROLES.DOCTOR), deleteTreatmentPlan);
 
 router.post(
   "/payments",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
   createPayment,
+  protectSubscription,
 );
 router.get(
   "/patients/:patientId/payments",
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY, ROLES.PATIENT),
   listPaymentsByPatient,
 );
-router.put("/payments/:paymentId", requireRole(ROLES.DOCTOR), updatePayment);
+router.put(
+  "/payments/:paymentId",
+  requireRole(ROLES.DOCTOR),
+  updatePayment,
+  protectSubscription,
+);
 router.delete("/payments/:paymentId", requireRole(ROLES.DOCTOR), deletePayment);
 
 router.get(

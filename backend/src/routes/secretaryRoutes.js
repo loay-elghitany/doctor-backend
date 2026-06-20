@@ -11,7 +11,7 @@ import { requireRole } from "../middleware/rbacMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
 import multer from "multer";
-
+import { protectSubscription } from "../middleware/subscriptionCheckMiddleware.js";
 const router = express.Router();
 
 // Secretary account routes - only doctors can create secretaries
@@ -33,6 +33,7 @@ router.post(
   universalAuth,
   requireRole(ROLES.SECRETARY, ROLES.DOCTOR),
   createPatientUnderDoctor,
+  protectSubscription,
 );
 
 // Scanned prescription upload
@@ -43,6 +44,7 @@ router.post(
   requireRole(ROLES.SECRETARY),
   upload.single("file"),
   uploadScannedPrescription,
+  protectSubscription,
 );
 
 // Note: /patients and /appointments routes removed - now use unified /api/patients and /api/appointments

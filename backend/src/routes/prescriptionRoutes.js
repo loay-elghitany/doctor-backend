@@ -11,7 +11,7 @@ import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
 import { strictPostLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
-
+import { protectSubscription } from "../middleware/subscriptionCheckMiddleware.js";
 const router = express.Router();
 
 /**
@@ -30,6 +30,7 @@ router.post(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   createPrescription,
+  protectSubscription,
 );
 
 /**
@@ -42,6 +43,7 @@ router.post(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   processVoicePrescription,
+  protectSubscription,
 );
 
 /**

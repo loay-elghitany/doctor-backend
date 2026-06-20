@@ -12,11 +12,11 @@ import { enforceTenant } from "../middleware/enforceTenant.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
-
+import { protectSubscription } from "../middleware/subscriptionCheckMiddleware.js";
 const router = express.Router();
 
 // /api/patients/register/:clinicSlug
-router.post("/register/:clinicSlug", registerPatient);
+router.post("/register/:clinicSlug", registerPatient, protectSubscription);
 
 // /api/patients/login (rate limited, OPTIONS skipped automatically)
 router.post("/login", authLimiter, loginPatient);

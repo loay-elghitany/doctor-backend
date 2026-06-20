@@ -230,17 +230,14 @@ export const deactivateDoctorAccount = async (req, res) => {
 };
 
 /**
- * Reactivate a deactivated doctor account (admin-only)
+ * Reactivate or Extend a doctor account subscription (admin-only)
  * POST /api/admin/reactivate-doctor/:doctorId
- *
- * Restores a previously deactivated doctor:
- * - Sets isActive = true
- * - Clears deactivatedAt timestamp
- * - Allows new appointments again
+ * * Admin submits: { months: 1 } (or 12 for a year)
  */
 export const reactivateDoctorAccount = async (req, res) => {
   try {
     const { doctorId } = req.params;
+    const { months } = req.body; // 🌟 عدد الشهور المرسلة من لوحة الأدمن عند الدفع فودافون كاش
 
     if (!doctorId) {
       return res.status(400).json({
@@ -260,42 +257,48 @@ export const reactivateDoctorAccount = async (req, res) => {
       });
     }
 
-    if (doctor.isActive) {
-      return res.status(400).json({
-        success: false,
-        message: "Doctor account is already active",
-        data: null,
-      });
-    }
+    // 🌟 حساب تاريخ انتهاء الاشتراك الجديد
+    let newExpiryDate =
+      doctor.subscriptionExpiresAt && doctor.subscriptionExpiresAt > new Date()
+        ? new Date(doctor.subscriptionExpiresAt) // لو لسه مشترك وعايز يجدد فوق مدته، نزود عليها
+        : new Date(); // لو منتهي أو جديد، نبدأ من تاريخ اللحظة الحالية
 
-    // Reactivate
+    // إضافة عدد الشهور (الافتراضي شهر واحد لو الأدمن مبعتش)
+    const monthsToAdd = parseInt(months) || 1;
+    newExpiryDate.setMonth(newExpiryDate.getMonth() + monthsToAdd);
+
+    // تحديث البيانات
     doctor.isActive = true;
     doctor.deactivatedAt = null;
+    doctor.subscriptionExpiresAt = newExpiryDate;
+    doctor.plan = monthsToAdd === 12 ? "pro" : "basic"; // تقسيم تلقائي للخطط حسب المدة لو أحببت
+
     await doctor.save();
 
-    logger.debug("[adminController] Doctor account reactivated", {
+    logger.debug("[adminController] Doctor subscription updated/reactivated", {
       doctorId: doctor._id,
       email: doctor.email,
-      clinicSlug: doctor.clinicSlug,
-      reactivatedAt: new Date().toISOString(),
+      monthsAdded: monthsToAdd,
+      expiresAt: newExpiryDate.toISOString(),
     });
 
     res.json({
       success: true,
-      message: "Doctor account reactivated successfully",
+      message: `تم تفعيل حساب الدكتور بنجاح لمدة ${monthsToAdd} شهر`,
       data: {
         id: doctor._id,
         name: doctor.name,
         email: doctor.email,
         isActive: doctor.isActive,
-        deactivatedAt: doctor.deactivatedAt,
+        plan: doctor.plan,
+        subscriptionExpiresAt: doctor.subscriptionExpiresAt,
       },
     });
   } catch (error) {
     logger.error("[reactivateDoctorAccount] error:", error);
     res.status(500).json({
       success: false,
-      message: "Failed to reactivate doctor account",
+      message: "Failed to update doctor subscription",
       data: null,
     });
   }

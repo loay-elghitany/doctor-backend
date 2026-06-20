@@ -216,6 +216,7 @@ export const loginDoctor = async (req, res) => {
           name: doctor.name,
           email: doctor.email,
           clinicSlug: doctor.clinicSlug,
+          subscriptionExpiresAt: doctor.subscriptionExpiresAt, // 🌟 ضفنا السطر ده هنا
         },
       },
     });
@@ -271,6 +272,7 @@ export const getDoctorProfile = async (req, res) => {
         clinicSlug: doctor.clinicSlug,
         plan: doctor.plan,
         status: doctor.status,
+        subscriptionExpiresAt: doctor.subscriptionExpiresAt, // 🌟 ضفنا السطر ده هنا
         bio: doctor.bio || "",
         specialty: doctor.specialty || "",
         profilePicture: doctor.profilePicture || "",

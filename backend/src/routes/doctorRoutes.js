@@ -29,6 +29,7 @@ import { requireRole } from "../middleware/rbacMiddleware.js";
 import { protectAdmin } from "../middleware/adminAuthMiddleware.js";
 import { authLimiter } from "../middleware/rateLimiter.js";
 import { ROLES } from "../constants/roles.js";
+import { protectSubscription } from "../middleware/subscriptionCheckMiddleware.js";
 
 const router = express.Router();
 
@@ -53,6 +54,7 @@ router.put(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   updateDoctorClinicProfile,
+  protectSubscription,
 );
 
 // Get all patients for the logged-in doctor or secretary (protected)
@@ -100,6 +102,7 @@ router.post(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   createPrivateNote,
+  protectSubscription,
 );
 
 router.put(
@@ -107,6 +110,7 @@ router.put(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   updatePrivateNote,
+  protectSubscription,
 );
 
 router.delete(
@@ -129,6 +133,7 @@ router.post(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   createPrivateFile,
+  protectSubscription,
 );
 
 router.delete(
