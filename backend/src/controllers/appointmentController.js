@@ -4,6 +4,7 @@ import Patient from "../models/Patient.js";
 import { APPOINTMENT_STATUS } from "../utils/appointmentConstants.js";
 import { parseISO, startOfDay, endOfDay, isBefore, isValid } from "date-fns";
 import PatientTimelineEvent from "../models/PatientTimelineEvent.js";
+import Prescription from "../models/Prescription.js";
 import { createTimelineEvent } from "./doctorTimelineController.js";
 import { createAndSendNotification } from "../services/whatsappNotificationService.js";
 import enforceOwnership from "../middleware/enforceOwnership.js";
@@ -151,7 +152,9 @@ const runPostCreateNotifications = async ({
       appointmentId: appointment._id,
       eventType: "appointment_created",
       eventTitle:
-        role === "secretary" ? "Walk-in Appointment Scheduled" : "Appointment Requested",
+        role === "secretary"
+          ? "Walk-in Appointment Scheduled"
+          : "Appointment Requested",
       eventDescription: `Appointment scheduled for ${formatLocalDateLabel(parsedDate)} at ${timeSlot}`,
       eventStatus: role === "secretary" ? "scheduled" : "pending",
       visibility: "patient_visible",
@@ -299,12 +302,12 @@ export const createAppointment = async (req, res) => {
   try {
     const {
       date,
-      timeSlot = "09:00",
       notes,
       patientId: requestedPatientId,
       doctorId: requestedDoctorId,
       intakeForm,
     } = req.body;
+    let timeSlot = req.body.timeSlot || "09:00";
 
     const role = req.user?.role;
     const userId = req.user?._id;
@@ -406,7 +409,8 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    if (!isValidTimeSlot(timeSlot)) {
+    // For secretary (walk-in) appointments we auto-assign the current server time as timeSlot
+    if (role !== "secretary" && !isValidTimeSlot(timeSlot)) {
       return res.status(400).json({
         success: false,
         message: "Invalid timeSlot format. Use HH:MM (e.g., 09:00, 14:30).",
@@ -478,6 +482,14 @@ export const createAppointment = async (req, res) => {
 
     const normalizedDate = startOfDay(parsedDate);
 
+    // If secretary is creating a walk-in, auto-assign current server time as timeSlot
+    if (role === "secretary") {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, "0");
+      const mm = String(now.getMinutes()).padStart(2, "0");
+      timeSlot = `${hh}:${mm}`;
+    }
+
     const conflict = await hasBookingConflict(
       tenantId,
       normalizedDate,
@@ -492,11 +504,32 @@ export const createAppointment = async (req, res) => {
       });
     }
 
+    // Calculate queue number for the day (per doctor)
+    let queueNumber = null;
+    try {
+      const start = startOfDay(normalizedDate);
+      const end = endOfDay(normalizedDate);
+      const activeCount = await Appointment.countDocuments({
+        doctorId: tenantId,
+        date: { $gte: start, $lte: end },
+        status: { $ne: APPOINTMENT_STATUS.CANCELLED },
+        isDeleted: { $ne: true },
+      });
+      queueNumber = activeCount + 1;
+    } catch (countErr) {
+      logger.error(
+        "[createAppointment] Failed to compute queue number:",
+        countErr.message,
+      );
+      queueNumber = null;
+    }
+
     const appointment = await Appointment.create({
       doctorId: tenantId,
       patientId,
       date: normalizedDate,
       timeSlot,
+      queueNumber,
       notes,
       intakeForm: intakeForm || {},
       status:
@@ -664,6 +697,27 @@ export const getUnifiedAppointments = async (req, res) => {
       totalItems,
     });
 
+    // Fetch any prescriptions for the returned appointments and attach them
+    const appointmentIds = appointments.map((a) => a._id).filter(Boolean);
+    let prescriptionsByAppointment = {};
+    if (appointmentIds.length > 0) {
+      try {
+        const prescriptions = await Prescription.find({
+          appointmentId: { $in: appointmentIds },
+        }).lean();
+        prescriptionsByAppointment = prescriptions.reduce((acc, p) => {
+          if (!p || !p.appointmentId) return acc;
+          acc[p.appointmentId.toString()] = p;
+          return acc;
+        }, {});
+      } catch (presErr) {
+        logger.error(
+          "[getUnifiedAppointments] Failed to fetch prescriptions:",
+          presErr.message,
+        );
+      }
+    }
+
     const normalizedAppointments = appointments.map((appointmentDoc) => {
       const appointment =
         typeof appointmentDoc.toObject === "function"
@@ -694,8 +748,11 @@ export const getUnifiedAppointments = async (req, res) => {
         email: "",
       };
 
+      const pres = prescriptionsByAppointment[appointment._id?.toString()];
+
       return {
         ...appointment,
+        prescription: pres || null,
         patientId: {
           _id: patient._id ?? null,
           name: patient.name || "Unknown Patient",

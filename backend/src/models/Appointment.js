@@ -37,6 +37,11 @@ const appointmentSchema = new mongoose.Schema(
         message: "timeSlot must be in HH:MM format (e.g., 09:00, 14:30)",
       },
     },
+    queueNumber: {
+      type: Number,
+      default: null,
+      index: true,
+    },
     rescheduleOptions: [
       {
         date: Date,

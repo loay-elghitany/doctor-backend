@@ -12,6 +12,7 @@ import auditService from "../services/auditService.js";
 import enforceOwnership from "../middleware/enforceOwnership.js";
 import logger from "../utils/logger.js";
 import { buildPagination, getPaginationParams } from "../utils/pagination.js";
+import { ROLES } from "../constants/roles.js";
 
 const extractGeminiText = (response) => {
   const result = Array.isArray(response) ? response[0] : response;
@@ -458,7 +459,10 @@ export const getAppointmentPrescriptions = async (req, res) => {
   try {
     const { appointmentId } = req.params;
     const isDoctor = !!req.doctor;
-    const userId = isDoctor ? req.doctor._id : req.user?._id;
+    const isSecretary = req.user?.role === ROLES.SECRETARY || !!req.secretary;
+    const userId = isDoctor
+      ? req.doctor._id
+      : req.secretary?._id || req.user?._id;
 
     if (!userId) {
       return res
@@ -469,7 +473,7 @@ export const getAppointmentPrescriptions = async (req, res) => {
     logger.debug("getAppointmentPrescriptions", "Fetching prescriptions", {
       appointmentId,
       userId,
-      userRole: isDoctor ? "doctor" : "patient",
+      userRole: isDoctor ? "doctor" : isSecretary ? "secretary" : "patient",
     });
 
     const appointment = await Appointment.findById(appointmentId);
@@ -481,6 +485,18 @@ export const getAppointmentPrescriptions = async (req, res) => {
 
     if (isDoctor) {
       if (appointment.doctorId.toString() !== req.doctor._id.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to access these prescriptions",
+          data: null,
+        });
+      }
+    } else if (isSecretary) {
+      const secretaryDoctorId = req.secretary?.doctorId || req.user?.doctorId;
+      if (
+        !secretaryDoctorId ||
+        appointment.doctorId.toString() !== secretaryDoctorId.toString()
+      ) {
         return res.status(403).json({
           success: false,
           message: "Not authorized to access these prescriptions",

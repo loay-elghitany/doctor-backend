@@ -95,7 +95,7 @@ router.delete(
 router.get(
   "/appointment/:appointmentId/doctor",
   universalAuth,
-  requireRole(ROLES.DOCTOR),
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
   getAppointmentPrescriptions,
 );
 
