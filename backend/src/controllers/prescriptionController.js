@@ -431,20 +431,34 @@ export const getDrugAlternatives = async (req, res) => {
 
     const prompt = `You are a clinical pharmacist assistant. Provide exactly 3 alternative brand names available in the market for the medication named \"${name}\" with the same active ingredient and strength. Return JSON only with a single field named \"alternatives\". Example: { \"alternatives\": [\"Brand A\", \"Brand B\", \"Brand C\"] }. Do not include markdown, explanations, or any additional keys.`;
 
-    const parsed = await parseGeminiJson(prompt);
-    const alternatives = Array.isArray(parsed.alternatives)
-      ? parsed.alternatives.map((entry) =>
-          typeof entry === "string"
-            ? entry
-            : String(entry?.name || entry || "").trim(),
-        )
-      : [];
+    try {
+      const parsed = await parseGeminiJson(prompt);
+      const alternatives = Array.isArray(parsed?.alternatives)
+        ? parsed.alternatives.map((entry) =>
+            typeof entry === "string"
+              ? entry
+              : String(entry?.name || entry || "").trim(),
+          )
+        : [];
 
-    res.json({
-      success: true,
-      message: "Drug alternatives retrieved successfully",
-      data: { alternatives: alternatives.filter(Boolean).slice(0, 3) },
-    });
+      return res.json({
+        success: true,
+        message: "Drug alternatives retrieved successfully",
+        data: { alternatives: alternatives.filter(Boolean).slice(0, 3) },
+      });
+    } catch (error) {
+      logger.error(
+        "[getDrugAlternatives] Gemini AI High Demand / Failed:",
+        error.message,
+      );
+      return res.json({
+        success: true,
+        isFallback: true,
+        message:
+          "سيرفر بدائل الأدوية مزدحم حالياً بطلب مرتفع، يرجى المحاولة مرة أخرى خلال دقيقة.",
+        data: [],
+      });
+    }
   } catch (error) {
     logger.error("getDrugAlternatives", "Gemini alternatives failed", error);
     res.status(502).json({
