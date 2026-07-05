@@ -39,7 +39,17 @@ const formatLocalDateLabel = (dateInput, locale = "ar-EG") => {
     dateInput instanceof Date
       ? new Date(dateInput.getTime())
       : new Date(dateInput);
-  return instance.toLocaleDateString(locale);
+
+  // Use the Unicode extension 'ar-EG-u-ca-gregory' to absolutely force Gregorian calculation in Node.js
+  const enforcedLocale = locale.startsWith("ar")
+    ? "ar-EG-u-ca-gregory"
+    : locale;
+
+  return instance.toLocaleDateString(enforcedLocale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 };
 
 /**
@@ -181,7 +191,7 @@ const runPostCreateNotifications = async ({
     const patientName = patient.name || "المريض";
     const patientPhone = patient.phoneNumber || "غير متوفر";
     const dateLabel = formatLocalDateLabel(parsedDate);
-    const formattedDate = formatLocalDateLabel(parsedDate, "ar-SA");
+    const formattedDate = formatLocalDateLabel(parsedDate, "ar-EG");
 
     const doctorMessage = `طلب موعد جديد 🔔. المريض: ${patientName} | 📞 الهاتف: ${patientPhone} | ⏰ التاريخ المطلوب: ${dateLabel} | ⌚ الوقت: ${timeSlot}.`;
     const patientMessage = `مرحباً ${patientName}، تم استلام طلب موعدك مع د. ${doctorName} 📅.`;

@@ -801,7 +801,10 @@ export const notifyStaffNewAppointment = async (
   appointment,
   patient,
 ) => {
-  const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
+  const formattedDate = new Date(appointment.date).toLocaleDateString(
+    "ar-EG-u-ca-gregory",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const doctorId = appointment.doctorId;
 
   await notifyClinicStaff({
@@ -832,7 +835,10 @@ export const notifyStaffAppointmentConfirmed = async (
   senderId,
   senderName,
 ) => {
-  const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
+  const formattedDate = new Date(appointment.date).toLocaleDateString(
+    "ar-EG-u-ca-gregory",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const doctorId = appointment.doctorId;
   const flags = getStaffNotificationFlags(senderRole);
   const roleLabel =
@@ -870,7 +876,10 @@ export const notifyStaffAppointmentCancelled = async (
   senderId,
   senderName,
 ) => {
-  const formattedDate = new Date(appointment.date).toLocaleDateString("ar-SA");
+  const formattedDate = new Date(appointment.date).toLocaleDateString(
+    "ar-EG-u-ca-gregory",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const doctorId = appointment.doctorId;
   const flags = getStaffNotificationFlags(senderRole);
   const roleLabel =
@@ -945,6 +954,10 @@ export const notifyStaffAppointmentCompleted = async (
   senderId,
   senderName,
 ) => {
+  const formattedDate = new Date(appointment.date).toLocaleDateString(
+    "ar-EG-u-ca-gregory",
+    { year: "numeric", month: "long", day: "numeric" },
+  );
   const doctorId = appointment.doctorId;
   const flags = getStaffNotificationFlags(senderRole);
   const roleLabel =
@@ -965,7 +978,7 @@ export const notifyStaffAppointmentCompleted = async (
     type: "APPOINTMENT_COMPLETED",
     category: "appointment",
     title: "تم إنجاز الموعد",
-    message: `${roleLabel} ${senderName} أكمل موعد المريض ${patient.name} بتاريخ ${appointment.date.toLocaleDateString("ar-SA")} الساعة ${appointment.timeSlot}`,
+    message: `${roleLabel} ${senderName} أكمل موعد المريض ${patient.name} بتاريخ ${formattedDate} الساعة ${appointment.timeSlot}`,
     link: `/appointments/${appointment._id}`,
     linkType: "appointment",
     appointmentId: appointment._id,
