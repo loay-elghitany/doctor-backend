@@ -4,6 +4,9 @@ import {
   setupAuthFixtures,
   createAppointment,
 } from "../testUtils.js";
+import Appointment from "../../src/models/Appointment.js";
+import { APPOINTMENT_STATUS } from "../../src/utils/appointmentConstants.js";
+import { getNextQueueNumberForDoctorDay } from "../../src/controllers/appointmentController.js";
 
 describe("Unified appointments endpoint", () => {
   let fixtures;
@@ -63,5 +66,51 @@ describe("Unified appointments endpoint", () => {
     const response = await request.get("/api/appointments");
     expect(response.status).toBe(401);
     expect(response.body.message).toMatch(/no token/i);
+  });
+
+  test("getNextQueueNumberForDoctorDay uses the highest active queue number for the doctor/day", async () => {
+    const date = new Date("2026-01-03T09:00:00Z");
+
+    await Appointment.create([
+      {
+        doctorId: fixtures.doctorA._id,
+        patientId: fixtures.patientA1._id,
+        date,
+        timeSlot: "09:00",
+        status: APPOINTMENT_STATUS.SCHEDULED,
+        queueNumber: 1,
+      },
+      {
+        doctorId: fixtures.doctorA._id,
+        patientId: fixtures.patientA2._id,
+        date,
+        timeSlot: "09:30",
+        status: APPOINTMENT_STATUS.SCHEDULED,
+        queueNumber: 3,
+      },
+      {
+        doctorId: fixtures.doctorA._id,
+        patientId: fixtures.patientA1._id,
+        date,
+        timeSlot: "10:00",
+        status: APPOINTMENT_STATUS.CANCELLED,
+        queueNumber: 9,
+      },
+      {
+        doctorId: fixtures.doctorA._id,
+        patientId: fixtures.patientA2._id,
+        date,
+        timeSlot: "10:30",
+        status: APPOINTMENT_STATUS.REJECTED,
+        queueNumber: 12,
+      },
+    ]);
+
+    const nextQueueNumber = await getNextQueueNumberForDoctorDay({
+      doctorId: fixtures.doctorA._id,
+      date,
+    });
+
+    expect(nextQueueNumber).toBe(4);
   });
 });

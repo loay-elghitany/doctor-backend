@@ -140,6 +140,25 @@ const hasBookingConflict = async (
   return !!conflict;
 };
 
+export const getNextQueueNumberForDoctorDay = async ({ doctorId, date }) => {
+  const start = startOfDay(date instanceof Date ? date : new Date(date));
+  const end = endOfDay(date instanceof Date ? date : new Date(date));
+
+  const latestAppointment = await Appointment.findOne({
+    doctorId,
+    date: { $gte: start, $lte: end },
+    isDeleted: { $ne: true },
+    status: { $nin: [APPOINTMENT_STATUS.CANCELLED, APPOINTMENT_STATUS.REJECTED] },
+    queueNumber: { $exists: true, $ne: null },
+  })
+    .sort({ queueNumber: -1 })
+    .lean();
+
+  return latestAppointment?.queueNumber
+    ? latestAppointment.queueNumber + 1
+    : 1;
+};
+
 /**
  * Fire-and-forget notification pipeline after appointment creation.
  */
@@ -517,15 +536,10 @@ export const createAppointment = async (req, res) => {
     // Calculate queue number for the day (per doctor)
     let queueNumber = null;
     try {
-      const start = startOfDay(normalizedDate);
-      const end = endOfDay(normalizedDate);
-      const activeCount = await Appointment.countDocuments({
+      queueNumber = await getNextQueueNumberForDoctorDay({
         doctorId: tenantId,
-        date: { $gte: start, $lte: end },
-        status: { $ne: APPOINTMENT_STATUS.CANCELLED },
-        isDeleted: { $ne: true },
+        date: normalizedDate,
       });
-      queueNumber = activeCount + 1;
     } catch (countErr) {
       logger.error(
         "[createAppointment] Failed to compute queue number:",
@@ -890,6 +904,20 @@ export const chooseTime = [
 
       // Set to SCHEDULED (patient accepted reschedule options from doctor)
       appointment.status = APPOINTMENT_STATUS.SCHEDULED;
+
+      if (!appointment.queueNumber) {
+        try {
+          appointment.queueNumber = await getNextQueueNumberForDoctorDay({
+            doctorId: appointment.doctorId,
+            date: selectedDate,
+          });
+        } catch (queueErr) {
+          logger.error(
+            "[chooseTime] Failed to assign queue number:",
+            queueErr.message,
+          );
+        }
+      }
 
       await appointment.save();
 

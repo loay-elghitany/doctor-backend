@@ -14,6 +14,7 @@ import {
 } from "./notificationController.js";
 import logger from "../utils/logger.js";
 import { canPerformAction } from "../utils/appointmentPermissions.js";
+import { getNextQueueNumberForDoctorDay } from "./appointmentController.js";
 
 const MAX_RESCHEDULE_OPTIONS = 5;
 
@@ -421,6 +422,24 @@ export const updateAppointmentStatus = async (req, res) => {
       }
 
       appointment.status = finalStatus;
+
+      if (
+        (finalStatus === APPOINTMENT_STATUS.SCHEDULED || finalStatus === "confirmed") &&
+        !appointment.queueNumber
+      ) {
+        try {
+          appointment.queueNumber = await getNextQueueNumberForDoctorDay({
+            doctorId: appointment.doctorId,
+            date: appointment.date,
+          });
+        } catch (queueErr) {
+          logger.error(
+            "[updateAppointmentStatus] Failed to assign queue number:",
+            queueErr.message,
+          );
+        }
+      }
+
       // Add status change to history for tracking
       appointment.statusHistory = appointment.statusHistory || [];
       appointment.statusHistory.push({
