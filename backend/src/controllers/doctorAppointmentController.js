@@ -424,7 +424,8 @@ export const updateAppointmentStatus = async (req, res) => {
       appointment.status = finalStatus;
 
       if (
-        (finalStatus === APPOINTMENT_STATUS.SCHEDULED || finalStatus === "confirmed") &&
+        (finalStatus === APPOINTMENT_STATUS.SCHEDULED ||
+          finalStatus === "confirmed") &&
         !appointment.queueNumber
       ) {
         try {

@@ -148,15 +148,15 @@ export const getNextQueueNumberForDoctorDay = async ({ doctorId, date }) => {
     doctorId,
     date: { $gte: start, $lte: end },
     isDeleted: { $ne: true },
-    status: { $nin: [APPOINTMENT_STATUS.CANCELLED, APPOINTMENT_STATUS.REJECTED] },
+    status: {
+      $nin: [APPOINTMENT_STATUS.CANCELLED, APPOINTMENT_STATUS.REJECTED],
+    },
     queueNumber: { $exists: true, $ne: null },
   })
     .sort({ queueNumber: -1 })
     .lean();
 
-  return latestAppointment?.queueNumber
-    ? latestAppointment.queueNumber + 1
-    : 1;
+  return latestAppointment?.queueNumber ? latestAppointment.queueNumber + 1 : 1;
 };
 
 /**
