@@ -648,10 +648,32 @@ export const getUnifiedAppointments = async (req, res) => {
     const { role, _id: userId, id: altUserId, doctorId } = req.user;
     const actualUserId = userId || altUserId;
 
+    let start, end;
+
+    if (req.query.date) {
+      const targetDate = new Date(req.query.date);
+      start = new Date(targetDate.setHours(0, 0, 0, 0));
+      end = new Date(targetDate.setHours(23, 59, 59, 999));
+    } else {
+      // Get current local time adjusted for Cairo/Egypt timezone (GMT+3)
+      const now = new Date();
+      const localTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+
+      // 5:00 AM Shift Threshold check
+      if (localTime.getHours() < 5) {
+        localTime.setDate(localTime.getDate() - 1);
+      }
+
+      start = new Date(localTime.setHours(0, 0, 0, 0));
+      end = new Date(localTime.setHours(23, 59, 59, 999));
+    }
+
     logger.debug("getUnifiedAppointments: Extracted", {
       role,
       userId: actualUserId,
       doctorId,
+      start,
+      end,
     });
 
     if (!role || !actualUserId) {
@@ -663,14 +685,24 @@ export const getUnifiedAppointments = async (req, res) => {
       });
     }
 
+    const dateFilter = { date: { $gte: start, $lte: end } };
+
     const roleStrategies = {
       doctor: () => {
-        const query = { doctorId: req.tenantId, isDeleted: { $ne: true } };
+        const query = {
+          doctorId: req.tenantId,
+          isDeleted: { $ne: true },
+          ...dateFilter,
+        };
         logger.debug("getUnifiedAppointments: DOCTOR query", { query });
         return { query };
       },
       secretary: () => {
-        const query = { doctorId: req.tenantId, isDeleted: { $ne: true } };
+        const query = {
+          doctorId: req.tenantId,
+          isDeleted: { $ne: true },
+          ...dateFilter,
+        };
         logger.debug("getUnifiedAppointments: SECRETARY query", {
           query,
           tenantId: req.tenantId,

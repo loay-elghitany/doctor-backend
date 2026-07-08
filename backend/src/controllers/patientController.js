@@ -851,7 +851,15 @@ export const getUnifiedPatients = async (req, res) => {
     const query = buildQuery();
     if (res.headersSent) return;
 
-    const { page, limit, skip } = getPaginationParams(req.query);
+    let { page, limit, skip } = getPaginationParams(req.query);
+    if (req.query.limit && !isNaN(parseInt(req.query.limit))) {
+      const requestedLimit = parseInt(req.query.limit);
+      if (requestedLimit > limit) {
+        limit = Math.min(requestedLimit, 5000);
+        skip = (page - 1) * limit;
+      }
+    }
+
     const totalItems = await Patient.countDocuments(query);
 
     const patients = await Patient.find(query)
