@@ -817,14 +817,32 @@ export const getUnifiedPatients = async (req, res) => {
       });
     }
 
+    const { search } = req.query;
+
     const queryBuilders = {
       doctor: () => {
         const query = { clinicSlug: req.user.clinicSlug };
+        if (search && search.trim() !== "") {
+          const searchRegex = new RegExp(search.trim(), "i");
+          query.$or = [
+            { name: searchRegex },
+            { phoneNumber: searchRegex },
+            { email: searchRegex },
+          ];
+        }
         logger.debug("getUnifiedPatients: DOCTOR query", { query });
         return query;
       },
       secretary: () => {
         const query = { clinicSlug: req.user.clinicSlug };
+        if (search && search.trim() !== "") {
+          const searchRegex = new RegExp(search.trim(), "i");
+          query.$or = [
+            { name: searchRegex },
+            { phoneNumber: searchRegex },
+            { email: searchRegex },
+          ];
+        }
         logger.debug("getUnifiedPatients: SECRETARY query", {
           query,
           clinicSlug: req.user.clinicSlug,

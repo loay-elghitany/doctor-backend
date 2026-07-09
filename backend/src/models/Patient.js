@@ -75,6 +75,8 @@ const patientSchema = new mongoose.Schema(
   },
 );
 
+patientSchema.index({ clinicSlug: 1, name: "text", phoneNumber: 1 });
+
 // Hash password before saving if it's modified (same as Doctor model)
 patientSchema.pre("save", async function () {
   // If password is not modified, proceed without hashing
