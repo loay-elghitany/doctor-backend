@@ -67,15 +67,12 @@ const parseGeminiJson = async (promptText) => {
   };
 
   try {
-    console.log("🚀 DEBUG: Sending native fetch request to Google v1beta...");
-
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
-    console.log("📋 DEBUG: Google Response HTTP Status:", response.status);
     const resJson = await response.json();
 
     if (!response.ok) {
@@ -91,7 +88,6 @@ const parseGeminiJson = async (promptText) => {
     }
 
     const assistantText = resJson?.candidates?.[0]?.content?.parts?.[0]?.text;
-    console.log("📝 DEBUG: Extracted Text from Gemini:", assistantText);
 
     if (!assistantText) {
       throw new Error("No text returned from Gemini API response structure.");

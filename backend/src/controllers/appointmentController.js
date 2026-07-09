@@ -744,7 +744,8 @@ export const getUnifiedAppointments = async (req, res) => {
       .populate("doctorId", "name email")
       .sort({ date: 1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     logger.debug("[getUnifiedAppointments] query results", {
       role,

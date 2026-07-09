@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import compression from "compression";
 
 dotenv.config({ path: process.env.DOTENV_PATH || `${process.cwd()}/.env` });
 
@@ -19,6 +20,8 @@ import { initializeTelegramBotListener } from "./services/telegramBotListener.js
 
 process.env.NODE_ENV = process.env.NODE_ENV || "development";
 const isProduction = process.env.NODE_ENV === "production";
+
+app.use(compression());
 
 const requiredEnv = ["JWT_SECRET", "ADMIN_SECRET_TOKEN"];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);

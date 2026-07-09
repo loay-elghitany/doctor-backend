@@ -377,14 +377,6 @@ export const createInAppNotification = async (data) => {
       isRead: false,
     });
 
-    console.log(
-      "[InAppNotification] Created:",
-      notification._id,
-      "for",
-      recipientRole,
-      recipient,
-    );
-
     // Emit real-time notification if applicable
     try {
       if (recipientRole === "doctor" || recipientRole === "secretary") {

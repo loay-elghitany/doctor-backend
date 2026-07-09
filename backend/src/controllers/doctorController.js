@@ -524,9 +524,11 @@ export const getDoctorPublicProfile = async (req, res) => {
     const doctor = await Doctor.findOne({
       clinicSlug,
       isActive: true,
-    }).select(
-      "name clinicSlug bio specialty profilePicture coverImage clinicPhotos socialLinks landingPageSettings phoneNumber",
-    );
+    })
+      .select(
+        "name clinicSlug bio specialty profilePicture coverImage clinicPhotos socialLinks landingPageSettings phoneNumber",
+      )
+      .lean();
 
     if (!doctor) {
       return res.status(404).json({
@@ -606,8 +608,9 @@ export const getDoctorPatients = async (req, res) => {
       patientQuery,
     });
 
-    const patients =
-      await Patient.find(patientQuery).select("name email phone");
+    const patients = await Patient.find(patientQuery)
+      .select("name email phone")
+      .lean();
 
     // Step B: Aggregate appointment statistics for this doctor
     const appointmentMatch = { doctorId };
@@ -726,7 +729,8 @@ export const getPatientAppointmentsForDoctor = async (req, res) => {
 
         const appointments = await Appointment.find(appointmentQuery)
           .sort({ date: -1 })
-          .select("date timeSlot status notes");
+          .select("date timeSlot status notes")
+          .lean();
 
         res.json({
           success: true,

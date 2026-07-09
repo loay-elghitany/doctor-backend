@@ -867,7 +867,8 @@ export const getUnifiedPatients = async (req, res) => {
       .select("name email phoneNumber doctorId createdAt")
       .sort({ createdAt: -1 })
       .skip(skip)
-      .limit(limit);
+      .limit(limit)
+      .lean();
 
     const normalizedPatients = patients.map((patientDoc) => {
       const patient =

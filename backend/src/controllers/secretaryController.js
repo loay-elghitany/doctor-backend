@@ -160,13 +160,6 @@ export const getSecretaryProfile = async (req, res) => {
 
     const sec = req.user;
 
-    // clinicSlug is now available from universalAuth middleware (populated from doctor)
-    console.log("[SecretaryController] Returning secretary profile:", {
-      id: sec._id,
-      clinicSlug: sec.clinicSlug,
-      doctorId: sec.doctorId,
-    });
-
     res.json({
       success: true,
       message: "Secretary profile retrieved",
