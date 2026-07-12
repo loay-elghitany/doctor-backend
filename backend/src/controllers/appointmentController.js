@@ -53,6 +53,25 @@ const formatLocalDateLabel = (dateInput, locale = "ar-EG") => {
 };
 
 /**
+ * Compute the clinic 'active shift' date based on a 5:00 AM shift boundary.
+ * Hours < 5 belong to the previous day. Uses Cairo/GMT+3 local offset.
+ */
+const getActiveShiftDate = (now = new Date()) => {
+  // adjust to local Cairo time (GMT+3)
+  const local = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  if (local.getHours() < 5) {
+    local.setDate(local.getDate() - 1);
+  }
+  // return a Date representing the start of that day (00:00 local)
+  const shiftDate = new Date(
+    local.getFullYear(),
+    local.getMonth(),
+    local.getDate(),
+  );
+  return shiftDate;
+};
+
+/**
  * Normalize secretary/patient intake form payload into the appointment schema shape.
  */
 const parseIntakeForm = (raw) => {
@@ -294,6 +313,21 @@ const runPostCreateNotifications = async ({
           staffError.message,
         );
       }
+      // Always emit to staff so doctor UI updates in real-time for secretary bookings
+      if (role === "secretary") {
+        try {
+          emitNewAppointmentToStaff(
+            doctorFromDb.clinicSlug || "",
+            patientName,
+            formatLocalDateLabel(parsedDate),
+          );
+        } catch (emitErr) {
+          logger.error(
+            "[createAppointment] emitNewAppointmentToStaff failed:",
+            emitErr.message,
+          );
+        }
+      }
 
       await createInAppNotification({
         recipient: patientId,
@@ -336,7 +370,9 @@ export const createAppointment = async (req, res) => {
       doctorId: requestedDoctorId,
       intakeForm,
     } = req.body;
-    let timeSlot = req.body.timeSlot || "09:00";
+    // Preserve truthy/undefined distinction so we can detect when secretary
+    // intentionally omitted timeSlot and assign current time below.
+    let timeSlot = req.body.timeSlot;
 
     const role = req.user?.role;
     const userId = req.user?._id;
@@ -430,7 +466,10 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    if (!date) {
+    // Allow secretaries to create immediate walk-in appointments without
+    // providing a date. For secretaries we will resolve the appointment
+    // date to the current active shift date (5:00 AM boundary).
+    if (!date && role !== "secretary") {
       return res.status(400).json({
         success: false,
         message: "Appointment date is required.",
@@ -438,8 +477,8 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    // For secretary (walk-in) appointments we auto-assign the current server time as timeSlot
-    if (role !== "secretary" && !isValidTimeSlot(timeSlot)) {
+    // For non-secretary submissions validate timeSlot format if provided
+    if (role !== "secretary" && timeSlot && !isValidTimeSlot(timeSlot)) {
       return res.status(400).json({
         success: false,
         message: "Invalid timeSlot format. Use HH:MM (e.g., 09:00, 14:30).",
@@ -447,18 +486,39 @@ export const createAppointment = async (req, res) => {
       });
     }
 
-    const parsedDate = parseISO(date);
-    if (!isValid(parsedDate)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid date format. Use ISO 8601 (e.g., 2026-02-06).",
-        data: null,
-      });
+    let parsedDate;
+    if (role === "secretary") {
+      // If secretary provided a date and it's valid, use it; otherwise
+      // fall back to the active shift date (5:00 AM boundary)
+      if (date) {
+        const attempt = parseISO(date);
+        parsedDate = isValid(attempt)
+          ? attempt
+          : getActiveShiftDate(new Date());
+      } else {
+        parsedDate = getActiveShiftDate(new Date());
+      }
+    } else {
+      parsedDate = parseISO(date);
+      if (!isValid(parsedDate)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid date format. Use ISO 8601 (e.g., 2026-02-06).",
+          data: null,
+        });
+      }
     }
 
     const today = startOfDay(new Date());
     const targetAppointmentDate = startOfDay(parsedDate);
-    if (isBefore(targetAppointmentDate, today)) {
+    // Allow appointments that match the clinic's active shift date (even if
+    // their startOfDay is before server 'today'). This lets secretaries create
+    // walk-ins for the current active shift without being rejected.
+    const activeShiftStart = startOfDay(getActiveShiftDate(new Date()));
+    if (
+      isBefore(targetAppointmentDate, today) &&
+      targetAppointmentDate.getTime() !== activeShiftStart.getTime()
+    ) {
       return res.status(400).json({
         success: false,
         message: "Cannot create an appointment in the past.",
@@ -511,8 +571,9 @@ export const createAppointment = async (req, res) => {
 
     const normalizedDate = startOfDay(parsedDate);
 
-    // If secretary is creating a walk-in, auto-assign current server time as timeSlot
-    if (role === "secretary") {
+    // If secretary is creating a walk-in and did not provide a timeSlot,
+    // auto-assign current local server time in HH:MM.
+    if (role === "secretary" && !timeSlot) {
       const now = new Date();
       const hh = String(now.getHours()).padStart(2, "0");
       const mm = String(now.getMinutes()).padStart(2, "0");
@@ -651,21 +712,21 @@ export const getUnifiedAppointments = async (req, res) => {
     let start, end;
 
     if (req.query.date) {
+      // Interpret provided date as local YYYY-MM-DD and expand to UTC-safe window
       const targetDate = new Date(req.query.date);
-      start = new Date(targetDate.setHours(0, 0, 0, 0));
-      end = new Date(targetDate.setHours(23, 59, 59, 999));
+      const localStart = startOfDay(targetDate);
+      const localEnd = endOfDay(targetDate);
+      // Expand window by ±3 hours to account for UTC storage offsets
+      start = new Date(localStart.getTime() - 3 * 60 * 60 * 1000);
+      end = new Date(localEnd.getTime() + 3 * 60 * 60 * 1000);
     } else {
-      // Get current local time adjusted for Cairo/Egypt timezone (GMT+3)
-      const now = new Date();
-      const localTime = new Date(now.getTime() + 3 * 60 * 60 * 1000);
-
-      // 5:00 AM Shift Threshold check
-      if (localTime.getHours() < 5) {
-        localTime.setDate(localTime.getDate() - 1);
-      }
-
-      start = new Date(localTime.setHours(0, 0, 0, 0));
-      end = new Date(localTime.setHours(23, 59, 59, 999));
+      // Use centralized active shift date logic (5:00 AM boundary)
+      const shiftDate = getActiveShiftDate(new Date());
+      const localStart = startOfDay(shiftDate);
+      const localEnd = endOfDay(shiftDate);
+      // Expand window by ±3 hours to account for UTC storage offsets
+      start = new Date(localStart.getTime() - 3 * 60 * 60 * 1000);
+      end = new Date(localEnd.getTime() + 3 * 60 * 60 * 1000);
     }
 
     logger.debug("getUnifiedAppointments: Extracted", {
@@ -689,8 +750,9 @@ export const getUnifiedAppointments = async (req, res) => {
 
     const roleStrategies = {
       doctor: () => {
+        const doctorIds = [req.tenantId, req.user?.doctorId].filter(Boolean);
         const query = {
-          doctorId: req.tenantId,
+          doctorId: doctorIds.length === 1 ? doctorIds[0] : { $in: doctorIds },
           isDeleted: { $ne: true },
           ...dateFilter,
         };
@@ -698,8 +760,9 @@ export const getUnifiedAppointments = async (req, res) => {
         return { query };
       },
       secretary: () => {
+        const doctorIds = [req.tenantId, req.user?.doctorId].filter(Boolean);
         const query = {
-          doctorId: req.tenantId,
+          doctorId: doctorIds.length === 1 ? doctorIds[0] : { $in: doctorIds },
           isDeleted: { $ne: true },
           ...dateFilter,
         };
@@ -710,10 +773,11 @@ export const getUnifiedAppointments = async (req, res) => {
         return { query };
       },
       patient: () => {
+        const doctorIds = [req.tenantId, req.user?.doctorId].filter(Boolean);
         const query = {
           patientId: actualUserId,
           hiddenByPatient: { $ne: true },
-          doctorId: req.tenantId,
+          doctorId: doctorIds.length === 1 ? doctorIds[0] : { $in: doctorIds },
           isDeleted: { $ne: true },
         };
         logger.debug("getUnifiedAppointments: PATIENT query", { query });
@@ -737,15 +801,29 @@ export const getUnifiedAppointments = async (req, res) => {
     }
 
     const { page, limit, skip } = getPaginationParams(req.query);
+    // Debug: show exact MongoDB query being executed
+    console.log(
+      "[getUnifiedAppointments] EXECUTING QUERY:",
+      JSON.stringify(strategy.query),
+    );
     const totalItems = await Appointment.countDocuments(strategy.query);
 
     const appointments = await Appointment.find(strategy.query)
       .populate("patientId", "name email phoneNumber")
       .populate("doctorId", "name email")
-      .sort({ date: 1 })
+      // Prefer ordering by queueNumber when present so staff see queue order
+      .sort({ queueNumber: 1, date: 1, timeSlot: 1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    // Debug: show how many raw documents were returned by the DB for this query
+    console.log(
+      "[getUnifiedAppointments] DB returned documents:",
+      appointments.length,
+      " totalItems:",
+      totalItems,
+    );
 
     logger.debug("[getUnifiedAppointments] query results", {
       role,
