@@ -140,6 +140,19 @@ const doctorSchema = new mongoose.Schema(
       welcomeMessage: { type: String, default: "", trim: true },
     },
 
+    customIntakeQuestions: [
+      {
+        id: { type: String, required: true },
+        questionText: { type: String, required: true },
+        type: {
+          type: String,
+          enum: ["text", "textarea", "boolean"],
+          default: "text",
+        },
+        required: { type: Boolean, default: false },
+      },
+    ],
+
     plan: {
       type: String,
       enum: ["free", "basic", "pro"],

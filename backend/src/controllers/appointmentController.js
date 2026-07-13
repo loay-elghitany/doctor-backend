@@ -77,13 +77,28 @@ const getActiveShiftDate = (now = new Date()) => {
 const parseIntakeForm = (raw) => {
   if (!raw || typeof raw !== "object") return null;
 
+  if (raw instanceof Map) {
+    const normalizedEntries = {};
+    raw.forEach((value, key) => {
+      normalizedEntries[key] = value;
+    });
+    return Object.keys(normalizedEntries).length ? normalizedEntries : null;
+  }
+
+  const legacyEntries = {};
+
   const chiefComplaint = String(raw.chiefComplaint || "").trim();
+  if (chiefComplaint) legacyEntries.chiefComplaint = chiefComplaint;
+
   const bloodPressure = String(
     raw.vitals?.bloodPressure || raw.bloodPressure || "",
   ).trim();
+  if (bloodPressure) legacyEntries.bloodPressure = bloodPressure;
+
   const diabetes = String(
     raw.vitals?.diabetes || raw.diabetesLevel || raw.diabetes || "",
   ).trim();
+  if (diabetes) legacyEntries.diabetes = diabetes;
 
   const medicalHistory = {
     smoking: Boolean(raw.medicalHistory?.smoking),
@@ -94,29 +109,26 @@ const parseIntakeForm = (raw) => {
     chestProblems: String(raw.medicalHistory?.chestProblems || "").trim(),
   };
 
-  const allergies = String(raw.allergies || "").trim();
-  const pregnancyOrLactation = String(raw.pregnancyOrLactation || "").trim();
-
-  const hasContent =
-    chiefComplaint ||
-    bloodPressure ||
-    diabetes ||
+  if (
     medicalHistory.smoking ||
     medicalHistory.heartSurgeries ||
     medicalHistory.familyHeartHistory ||
-    medicalHistory.chestProblems ||
-    allergies ||
-    pregnancyOrLactation;
+    medicalHistory.chestProblems
+  ) {
+    legacyEntries.medicalHistory = medicalHistory;
+  }
 
+  const allergies = String(raw.allergies || "").trim();
+  if (allergies) legacyEntries.allergies = allergies;
+
+  const pregnancyOrLactation = String(raw.pregnancyOrLactation || "").trim();
+  if (pregnancyOrLactation)
+    legacyEntries.pregnancyOrLactation = pregnancyOrLactation;
+
+  const hasContent = Object.keys(legacyEntries).length > 0;
   if (!hasContent) return null;
 
-  return {
-    chiefComplaint,
-    vitals: { bloodPressure, diabetes },
-    medicalHistory,
-    allergies,
-    pregnancyOrLactation,
-  };
+  return legacyEntries;
 };
 
 /**
@@ -810,7 +822,7 @@ export const getUnifiedAppointments = async (req, res) => {
 
     const appointments = await Appointment.find(strategy.query)
       .populate("patientId", "name email phoneNumber")
-      .populate("doctorId", "name email")
+      .populate("doctorId", "name email customIntakeQuestions")
       // Prefer ordering by queueNumber when present so staff see queue order
       .sort({ queueNumber: 1, date: 1, timeSlot: 1 })
       .skip(skip)
@@ -1534,7 +1546,16 @@ export const updateIntakeForm = async (req, res) => {
     }
 
     // Update intake form
-    appointment.intakeForm = intakeForm;
+    const normalizedIntakeForm =
+      intakeForm && typeof intakeForm === "object"
+        ? Object.fromEntries(
+            Object.entries(intakeForm).filter(
+              ([, value]) => value !== undefined,
+            ),
+          )
+        : {};
+
+    appointment.intakeForm = normalizedIntakeForm;
     await appointment.save();
 
     res.json({

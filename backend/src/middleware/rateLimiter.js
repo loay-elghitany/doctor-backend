@@ -1,5 +1,7 @@
 import rateLimit from "express-rate-limit";
 
+const isDevelopment = process.env.NODE_ENV === "development";
+
 // Skip function: always allow OPTIONS (CORS preflight) and health checks, and skip in test environment
 const skipOptions = (req) => {
   if (process.env.NODE_ENV === "test") return true;
@@ -25,7 +27,7 @@ const setCorsHeaders = (req, res) => {
  */
 export const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: isDevelopment ? 300 : 100,
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipOptions,
@@ -45,7 +47,7 @@ export const generalLimiter = rateLimit({
  */
 export const authLimiter = rateLimit({
   windowMs: 10 * 60 * 1000, // 10 minutes
-  max: 10,
+  max: isDevelopment ? 40 : 10,
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipOptions,
@@ -65,7 +67,7 @@ export const authLimiter = rateLimit({
  */
 export const strictPostLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30,
+  max: isDevelopment ? 120 : 30,
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipOptions,

@@ -129,51 +129,12 @@ const appointmentSchema = new mongoose.Schema(
       default: false,
       index: false,
     },
-    // Intake form (triage) - optional data collected by secretary during patient intake
+    // Intake form (triage) - stores dynamic doctor-defined answers as key/value pairs
+    // while remaining backward compatible with legacy object-based records.
     intakeForm: {
-      type: {
-        chiefComplaint: {
-          type: String,
-          default: "",
-        },
-        vitals: {
-          bloodPressure: {
-            type: String,
-            default: "",
-          },
-          diabetes: {
-            type: String,
-            default: "",
-          },
-        },
-        medicalHistory: {
-          smoking: {
-            type: Boolean,
-            default: false,
-          },
-          heartSurgeries: {
-            type: String,
-            default: "",
-          },
-          familyHeartHistory: {
-            type: String,
-            default: "",
-          },
-          chestProblems: {
-            type: String,
-            default: "",
-          },
-        },
-        allergies: {
-          type: String,
-          default: "",
-        },
-        pregnancyOrLactation: {
-          type: String,
-          default: "",
-        },
-      },
-      default: null,
+      type: Map,
+      of: mongoose.Schema.Types.Mixed,
+      default: {},
     },
   },
   {

@@ -287,6 +287,7 @@ export const getDoctorProfile = async (req, res) => {
           themeColor: "#2563eb",
           welcomeMessage: "",
         },
+        customIntakeQuestions: doctor.customIntakeQuestions || [],
       },
     });
 
@@ -320,6 +321,7 @@ export const updateDoctorClinicProfile = async (req, res) => {
       clinicPhotos,
       socialLinks,
       landingPageSettings,
+      customIntakeQuestions,
     } = req.body || {};
 
     const urlValidationError = validateClinicProfileUrls({
@@ -374,6 +376,22 @@ export const updateDoctorClinicProfile = async (req, res) => {
       };
     }
 
+    if (customIntakeQuestions !== undefined) {
+      doctor.customIntakeQuestions = Array.isArray(customIntakeQuestions)
+        ? customIntakeQuestions
+            .filter(Boolean)
+            .map((question, index) => ({
+              id: question.id || `question-${Date.now()}-${index}`,
+              questionText: String(question.questionText || "").trim(),
+              type: ["text", "textarea", "boolean"].includes(question.type)
+                ? question.type
+                : "text",
+              required: Boolean(question.required),
+            }))
+            .filter((question) => question.questionText)
+        : [];
+    }
+
     await doctor.save();
 
     return res.json({
@@ -396,6 +414,7 @@ export const updateDoctorClinicProfile = async (req, res) => {
           themeColor: "#2563eb",
           welcomeMessage: "",
         },
+        customIntakeQuestions: doctor.customIntakeQuestions || [],
       },
     });
   } catch (error) {

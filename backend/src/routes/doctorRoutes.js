@@ -48,7 +48,12 @@ router.post("/login", authLimiter, loginDoctor);
 router.get("/public-profile", getDoctorPublicProfile);
 
 // Get doctor profile (protected)
-router.get("/me", universalAuth, requireRole(ROLES.DOCTOR), getDoctorProfile);
+router.get(
+  "/me",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  getDoctorProfile,
+);
 router.put(
   "/clinic-profile",
   universalAuth,
