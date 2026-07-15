@@ -215,6 +215,68 @@ export const addDoctorNote = async (req, res) => {
 };
 
 /**
+ * Update an existing doctor timeline note event
+ */
+export const updateDoctorTimelineNote = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const { eventId } = req.params;
+    const { noteContent } = req.body;
+    const trimmedNote = String(noteContent || "").trim();
+
+    if (!eventId) {
+      return res.status(400).json({
+        success: false,
+        message: "Event ID is required",
+        data: null,
+      });
+    }
+
+    if (!trimmedNote) {
+      return res.status(400).json({
+        success: false,
+        message: "Note content is required",
+        data: null,
+      });
+    }
+
+    const event = await PatientTimelineEvent.findOneAndUpdate(
+      {
+        _id: eventId,
+        doctorId: req.doctor._id,
+        eventType: "doctor_note_added",
+      },
+      {
+        eventDescription: trimmedNote,
+        "metadata.noteContent": trimmedNote,
+        "metadata.lastUpdated": new Date(),
+      },
+      { new: true },
+    );
+
+    if (!event) {
+      return res.status(404).json({
+        success: false,
+        message: "Note not found",
+        data: null,
+      });
+    }
+
+    res.json({ success: true, data: event });
+  } catch (err) {
+    logger.error("updateDoctorTimelineNote", "Unexpected error", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
  * Create timeline event for internal tracking
  * Called by other controllers when events occur
  */

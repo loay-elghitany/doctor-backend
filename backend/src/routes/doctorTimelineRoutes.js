@@ -5,6 +5,7 @@ import { ROLES } from "../constants/roles.js";
 import {
   getDoctorPatientTimeline,
   addDoctorNote,
+  updateDoctorTimelineNote,
 } from "../controllers/doctorTimelineController.js";
 
 const router = express.Router();
@@ -33,6 +34,19 @@ router.post(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   addDoctorNote,
+);
+
+/**
+ * @route   PUT /api/doctors/timeline/notes/:eventId
+ * @desc    Update an existing doctor note event in the timeline
+ * @access  Private (Doctor only)
+ * @body    { noteContent: string }
+ */
+router.put(
+  "/timeline/notes/:eventId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  updateDoctorTimelineNote,
 );
 
 export default router;

@@ -206,6 +206,7 @@ app.use("/api/prescriptions", prescriptionRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/doctor-appointments", doctorAppointmentRoutes);
 app.use("/api/doctor/patients", doctorTimelineRoutes);
+app.use("/api/doctors", doctorTimelineRoutes);
 app.use("/api/views", appointmentViewRoutes);
 app.use("/api/patient", patientTimelineRoutes);
 app.use("/api/patient/timeline", patientTimelineFilteredRoutes);
