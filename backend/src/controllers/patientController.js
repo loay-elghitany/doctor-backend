@@ -477,6 +477,135 @@ export const getPatientProfile = async (req, res) => {
   }
 };
 
+export const updatePatientProfile = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+
+    if (!req.user || !req.user._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated",
+        data: null,
+      });
+    }
+
+    if (!patientId) {
+      return res.status(400).json({
+        success: false,
+        message: "Patient ID is required",
+        data: null,
+      });
+    }
+
+    if (!mongoose.isValidObjectId(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid patient ID format",
+        data: null,
+      });
+    }
+
+    if (![ROLES.DOCTOR, ROLES.SECRETARY].includes(req.user.role || "")) {
+      return res.status(403).json({
+        success: false,
+        message: "Only doctors and secretaries can update patient profiles",
+        data: null,
+      });
+    }
+
+    const patient = await Patient.findById(patientId).select(
+      "name email phoneNumber clinicSlug",
+    );
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
+        data: null,
+      });
+    }
+
+    if (patient.clinicSlug !== req.user.clinicSlug) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update this patient's profile",
+        data: null,
+      });
+    }
+
+    const { name, phoneNumber, email } = req.body || {};
+    const normalizedName = typeof name === "string" ? name.trim() : "";
+    const normalizedPhone =
+      typeof phoneNumber === "string" ? phoneNumber.trim() : "";
+    const normalizedEmail =
+      typeof email === "string" ? email.trim().toLowerCase() : "";
+
+    if (!normalizedName) {
+      return res.status(400).json({
+        success: false,
+        message: "Name is required",
+        data: null,
+      });
+    }
+
+    if (!normalizedPhone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required",
+        data: null,
+      });
+    }
+
+    const phoneRegex =
+      /^[+]?[(]?[0-9]{1,3}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,9}$/;
+    if (!phoneRegex.test(normalizedPhone)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid phone number format",
+        data: null,
+      });
+    }
+
+    if (
+      normalizedEmail &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid email format",
+        data: null,
+      });
+    }
+
+    const updates = {
+      name: normalizedName,
+      phoneNumber: normalizedPhone,
+    };
+
+    if (normalizedEmail) {
+      updates.email = normalizedEmail;
+    }
+
+    const updatedPatient = await Patient.findByIdAndUpdate(patientId, updates, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    res.json({
+      success: true,
+      message: "Patient profile updated successfully",
+      data: updatedPatient,
+    });
+  } catch (error) {
+    logger.error("updatePatientProfile error:", error);
+    const status = error?.status || 500;
+    res.status(status).json({
+      success: false,
+      message: error?.message || "Server error updating patient profile",
+      data: null,
+    });
+  }
+};
+
 export const getPatientScannedPrescriptions = async (req, res) => {
   try {
     const { patientId } = req.params;
