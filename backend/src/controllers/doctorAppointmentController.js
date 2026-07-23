@@ -152,7 +152,8 @@ export const createDoctorAppointment = async (req, res) => {
       createdById,
     });
 
-    // timeline + notification can be added if needed with doctor timeline flow
+    await appointment.populate("patientId", "name email phoneNumber");
+    await appointment.populate("doctorId", "name email customIntakeQuestions");
 
     res.status(201).json({
       success: true,
@@ -538,6 +539,9 @@ export const updateAppointmentStatus = async (req, res) => {
       );
       throw saveError;
     }
+
+    await appointment.populate("patientId", "name email phoneNumber");
+    await appointment.populate("doctorId", "name email customIntakeQuestions");
 
     // Auto-create timeline event for status changes
     if (status) {
@@ -1075,6 +1079,8 @@ export const cancelAppointment = async (req, res) => {
     appointment.rescheduleOptions = [];
 
     await appointment.save();
+    await appointment.populate("patientId", "name email phoneNumber");
+    await appointment.populate("doctorId", "name email customIntakeQuestions");
 
     // Auto-create timeline event for doctor cancellation
     try {
@@ -1260,6 +1266,9 @@ export const markAppointmentCompleted = async (req, res) => {
     }
 
     await appointment.save();
+
+    await appointment.populate("patientId", "name email phoneNumber");
+    await appointment.populate("doctorId", "name email customIntakeQuestions");
 
     logger.debug("[markAppointmentCompleted] Appointment marked completed", {
       appointmentId: appointment._id,

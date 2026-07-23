@@ -29,6 +29,13 @@ const patientSchema = new mongoose.Schema(
         /^[+]?[(]?[0-9]{1,3}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,4}[-\s.]?[0-9]{1,9}$/,
     },
 
+    age: {
+      type: Number,
+      required: false,
+      min: 0,
+      max: 120,
+    },
+
     doctorId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Doctor",

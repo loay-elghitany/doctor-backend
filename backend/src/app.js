@@ -115,6 +115,7 @@ const corsOptions = {
     "X-Requested-With",
     "Accept",
     "X-Subdomain",
+    "x-clinic-slug",
   ],
   exposedHeaders: ["Authorization"],
   maxAge: 86400,

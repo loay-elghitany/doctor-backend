@@ -213,8 +213,15 @@ export const getSecretaryPatients = async (req, res) => {
 
 export const createPatientUnderDoctor = async (req, res) => {
   try {
-    const { name, email, password, phoneNumber, clinicSlug, medicalHistory } =
-      req.body;
+    const {
+      name,
+      email,
+      password,
+      phoneNumber,
+      clinicSlug,
+      medicalHistory,
+      age,
+    } = req.body;
     logger.debug("createPatientUnderDoctor: auth objects", {
       user: req.user,
       secretary: req.secretary,
@@ -272,6 +279,7 @@ export const createPatientUnderDoctor = async (req, res) => {
       phoneNumber: finalPhone,
       doctorId,
       medicalHistory,
+      age,
     });
 
     try {
@@ -292,6 +300,7 @@ export const createPatientUnderDoctor = async (req, res) => {
         name: patient.name,
         email: patient.email,
         phoneNumber: patient.phoneNumber,
+        age: patient.age,
         clinicSlug: patient.clinicSlug,
         doctorId: patient.doctorId,
       },

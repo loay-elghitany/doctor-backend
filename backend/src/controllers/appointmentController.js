@@ -1558,6 +1558,9 @@ export const updateIntakeForm = async (req, res) => {
     appointment.intakeForm = normalizedIntakeForm;
     await appointment.save();
 
+    await appointment.populate("patientId", "name email phoneNumber");
+    await appointment.populate("doctorId", "name email customIntakeQuestions");
+
     res.json({
       success: true,
       message: "Intake form updated successfully.",

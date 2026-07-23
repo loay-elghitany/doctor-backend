@@ -1,6 +1,8 @@
 import Prescription from "../models/Prescription.js";
 import Appointment from "../models/Appointment.js";
 import Doctor from "../models/Doctor.js";
+import PrescriptionTemplate from "../models/PrescriptionTemplate.js";
+import DoctorDrugCache from "../models/DoctorDrugCache.js";
 import {
   createInAppNotification,
   notifyPatientNewPrescription,
@@ -39,6 +41,9 @@ const ensureJsonOnly = (rawText) => {
   cleaned = cleaned.slice(jsonStart, jsonEnd + 1);
   return JSON.parse(cleaned);
 };
+
+const escapeRegExp = (value) =>
+  String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const parseGeminiJson = async (promptText) => {
   let geminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -100,6 +105,76 @@ const parseGeminiJson = async (promptText) => {
       fetchError.message,
     );
     throw fetchError;
+  }
+};
+
+const mergeDoctorDrugsWithAI = async (doctorId, specialty) => {
+  if (!doctorId) return { mergedCount: 0, attempted: 0 };
+
+  const safeSpecialty = String(specialty || "").trim() || "general medicine";
+  const prompt = `You are a clinical pharmacy expert. Provide a JSON array containing exactly 80-100 of the most common, widely prescribed commercial brand names of medications in the local market for a physician specializing in "${safeSpecialty}". Return JSON format only with a single key named "drugs" containing an array of strings (e.g., { "drugs": ["Concor", "Cataflam", "Augmentin"] }). Do not include markdown, formatting backticks, or any explanations.`;
+
+  const parsed = await parseGeminiJson(prompt);
+  const drugNames = Array.isArray(parsed?.drugs)
+    ? parsed.drugs
+        .map((drug) => String(drug || "").trim())
+        .filter(Boolean)
+        .slice(0, 100)
+    : [];
+
+  if (drugNames.length === 0) {
+    return { mergedCount: 0, attempted: 0 };
+  }
+
+  const uniqueDrugNames = Array.from(
+    new Map(
+      drugNames.map((name) => [
+        String(name).trim().toLowerCase(),
+        String(name).trim(),
+      ]),
+    ).values(),
+  );
+
+  const operations = uniqueDrugNames.map((name) => ({
+    updateOne: {
+      filter: {
+        doctorId,
+        name: { $regex: `^${escapeRegExp(name)}$`, $options: "i" },
+      },
+      update: {
+        $setOnInsert: {
+          doctorId,
+          name,
+        },
+      },
+      upsert: true,
+    },
+  }));
+
+  const result = await DoctorDrugCache.bulkWrite(operations, {
+    ordered: false,
+  });
+
+  return {
+    mergedCount: result.upsertedCount || 0,
+    attempted: uniqueDrugNames.length,
+  };
+};
+
+const seedDoctorDrugsWithAI = async (doctorId, specialty) => {
+  try {
+    if (!doctorId) return;
+
+    const existingCount = await DoctorDrugCache.countDocuments({ doctorId });
+    if (existingCount > 0) return;
+
+    await mergeDoctorDrugsWithAI(doctorId, specialty);
+  } catch (error) {
+    logger.warn("seedDoctorDrugsWithAI", "Failed to seed doctor drug cache", {
+      doctorId,
+      specialty: specialty || null,
+      error: error.message,
+    });
   }
 };
 
@@ -195,6 +270,34 @@ export const createPrescription = async (req, res) => {
       prescriptionId: prescription._id,
       appointmentId,
     });
+
+    void (async () => {
+      try {
+        const uniqueDrugNames = [
+          ...new Set(
+            (medications || [])
+              .map((med) => String(med?.name || "").trim())
+              .filter(Boolean),
+          ),
+        ];
+
+        await Promise.allSettled(
+          uniqueDrugNames.map((drugName) =>
+            DoctorDrugCache.findOneAndUpdate(
+              { doctorId: req.doctor._id, name: drugName },
+              { doctorId: req.doctor._id, name: drugName },
+              { upsert: true, new: true, setDefaultsOnInsert: true },
+            ),
+          ),
+        );
+      } catch (cacheError) {
+        logger.error(
+          "createPrescription",
+          "Background drug cache update failed",
+          cacheError,
+        );
+      }
+    })();
 
     try {
       const medicationSummary = medications
@@ -460,6 +563,215 @@ export const getDrugAlternatives = async (req, res) => {
     res.status(502).json({
       success: false,
       message: "Failed to fetch drug alternatives",
+      data: null,
+    });
+  }
+};
+
+export const savePrescriptionTemplate = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const { templateName, diagnosis, medications, notes } = req.body;
+
+    if (!templateName || String(templateName).trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Template name is required",
+        data: null,
+      });
+    }
+
+    const normalizedMedications = Array.isArray(medications)
+      ? medications.map((med) => ({
+          name: med?.name ? String(med.name).trim() : "",
+          dosage: med?.dosage ? String(med.dosage).trim() : "",
+          frequency: med?.frequency ? String(med.frequency).trim() : "",
+          duration: med?.duration ? String(med.duration).trim() : "",
+          instructions: med?.instructions
+            ? String(med.instructions).trim()
+            : "",
+        }))
+      : [];
+
+    const template = await PrescriptionTemplate.create({
+      doctorId: req.doctor._id,
+      templateName: String(templateName).trim(),
+      diagnosis: diagnosis ? String(diagnosis).trim() : null,
+      medications: normalizedMedications,
+      notes: notes ? String(notes).trim() : null,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Prescription template saved successfully",
+      data: template,
+    });
+  } catch (error) {
+    logger.error("savePrescriptionTemplate", "Unexpected error", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error saving prescription template",
+      data: null,
+    });
+  }
+};
+
+export const getDoctorTemplates = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const templates = await PrescriptionTemplate.find({
+      doctorId: req.doctor._id,
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Prescription templates retrieved successfully",
+      data: templates,
+    });
+  } catch (error) {
+    logger.error("getDoctorTemplates", "Unexpected error", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error retrieving prescription templates",
+      data: null,
+    });
+  }
+};
+
+export const deletePrescriptionTemplate = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const { templateId } = req.params;
+
+    const deletedTemplate = await PrescriptionTemplate.findOneAndDelete({
+      _id: templateId,
+      doctorId: req.doctor._id,
+    });
+
+    if (!deletedTemplate) {
+      return res.status(404).json({
+        success: false,
+        message: "Prescription template not found",
+        data: null,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Prescription template deleted successfully",
+      data: null,
+    });
+  } catch (error) {
+    logger.error("deletePrescriptionTemplate", "Unexpected error", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error deleting prescription template",
+      data: null,
+    });
+  }
+};
+
+export const searchDoctorDrugs = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const query = String(req.query.query || "").trim();
+
+    if (!query) {
+      return res.json({
+        success: true,
+        message: "Drug search query is empty",
+        data: [],
+      });
+    }
+
+    const doctor = await Doctor.findById(req.doctor._id).select("specialty");
+    const existingCount = await DoctorDrugCache.countDocuments({
+      doctorId: req.doctor._id,
+    });
+
+    if (existingCount === 0) {
+      await seedDoctorDrugsWithAI(req.doctor._id, doctor?.specialty);
+    }
+
+    const drugs = await DoctorDrugCache.find({
+      doctorId: req.doctor._id,
+      name: { $regex: query, $options: "i" },
+    })
+      .select("name")
+      .limit(10)
+      .lean();
+
+    res.json({
+      success: true,
+      message: "Doctor drugs retrieved successfully",
+      data: drugs.map((drug) => drug.name),
+    });
+  } catch (error) {
+    logger.error("searchDoctorDrugs", "Unexpected error", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error searching doctor drugs",
+      data: null,
+    });
+  }
+};
+
+export const forceRefreshDoctorDrugs = async (req, res) => {
+  try {
+    if (!req.doctor || !req.doctor._id) {
+      return res.status(401).json({
+        success: false,
+        message: "Not authenticated as doctor",
+        data: null,
+      });
+    }
+
+    const doctor = await Doctor.findById(req.doctor._id).select("specialty");
+    const { mergedCount } = await mergeDoctorDrugsWithAI(
+      req.doctor._id,
+      doctor?.specialty,
+    );
+
+    res.json({
+      success: true,
+      message: `تم دمج ${mergedCount} دواءً جديدًا في قاعدة بيانات العيادة بدون فقدان البيانات الحالية`,
+      data: { mergedCount },
+    });
+  } catch (error) {
+    logger.error("forceRefreshDoctorDrugs", "Unexpected error", error);
+    res.status(500).json({
+      success: false,
+      message: "فشل تحديث قاعدة بيانات الأدوية",
       data: null,
     });
   }

@@ -14,6 +14,7 @@ import {
   updatePrivateNote,
   deletePrivateNote,
 } from "../controllers/doctorPrivateNotesController.js";
+import { getDoctorReportsDashboard } from "../controllers/reportController.js";
 import {
   getPrivateFiles,
   createPrivateFile,
@@ -76,6 +77,14 @@ router.get(
   universalAuth,
   requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
   getPatientAppointmentsForDoctor,
+);
+
+// Doctor reports dashboard (tenant-scoped)
+router.get(
+  "/reports/dashboard",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  getDoctorReportsDashboard,
 );
 
 // Get scanned prescriptions for this doctor's clinic

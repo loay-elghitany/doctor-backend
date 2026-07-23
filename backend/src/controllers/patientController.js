@@ -225,6 +225,15 @@ const resolvePatientDoctorId = async (req, clinicSlug) => {
   };
 };
 
+const normalizeAge = (age) => {
+  if (age === undefined || age === null || String(age).trim() === "") {
+    return undefined;
+  }
+
+  const parsedAge = Number(age);
+  return Number.isFinite(parsedAge) ? parsedAge : undefined;
+};
+
 const buildPatientPayload = ({
   name,
   email,
@@ -233,6 +242,7 @@ const buildPatientPayload = ({
   doctorId,
   clinicSlug,
   medicalHistory,
+  age,
 }) => ({
   name,
   email,
@@ -241,6 +251,7 @@ const buildPatientPayload = ({
   doctorId,
   clinicSlug,
   medicalHistory: medicalHistory || undefined,
+  age: normalizeAge(age),
 });
 
 export const createPatientRecord = async ({
@@ -251,6 +262,7 @@ export const createPatientRecord = async ({
   doctorId,
   clinicSlug,
   medicalHistory,
+  age,
 }) => {
   // Ensure uniqueness by email OR phoneNumber to prevent duplicates
   if (email) {
@@ -280,6 +292,7 @@ export const createPatientRecord = async ({
       doctorId,
       clinicSlug,
       medicalHistory,
+      age,
     }),
   );
 };
@@ -288,7 +301,8 @@ export const createPatientRecord = async ({
 export const registerPatient = async (req, res) => {
   try {
     const clinicSlug = req.params.clinicSlug || req.body.clinicSlug;
-    const { name, email, password, phoneNumber, medicalHistory } = req.body;
+    const { name, email, password, phoneNumber, medicalHistory, age } =
+      req.body;
 
     const authResult = await loadOptionalAuthenticatedUser(req);
     if (authResult.error) {
@@ -369,6 +383,7 @@ export const registerPatient = async (req, res) => {
       doctorId,
       clinicSlug: resolution.clinicSlug,
       medicalHistory,
+      age,
     });
 
     const patient = await Patient.create(patientPayload);
@@ -532,12 +547,16 @@ export const updatePatientProfile = async (req, res) => {
       });
     }
 
-    const { name, phoneNumber, email } = req.body || {};
+    const { name, phoneNumber, email, age } = req.body || {};
     const normalizedName = typeof name === "string" ? name.trim() : "";
     const normalizedPhone =
       typeof phoneNumber === "string" ? phoneNumber.trim() : "";
     const normalizedEmail =
       typeof email === "string" ? email.trim().toLowerCase() : "";
+    const normalizedAge =
+      age !== undefined && age !== null && String(age).trim() !== ""
+        ? Number(age)
+        : undefined;
 
     if (!normalizedName) {
       return res.status(400).json({
@@ -576,6 +595,19 @@ export const updatePatientProfile = async (req, res) => {
       });
     }
 
+    if (
+      normalizedAge !== undefined &&
+      (!Number.isFinite(normalizedAge) ||
+        normalizedAge < 0 ||
+        normalizedAge > 120)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid age value",
+        data: null,
+      });
+    }
+
     const updates = {
       name: normalizedName,
       phoneNumber: normalizedPhone,
@@ -583,6 +615,10 @@ export const updatePatientProfile = async (req, res) => {
 
     if (normalizedEmail) {
       updates.email = normalizedEmail;
+    }
+
+    if (normalizedAge !== undefined) {
+      updates.age = normalizedAge;
     }
 
     const updatedPatient = await Patient.findByIdAndUpdate(patientId, updates, {
@@ -1011,7 +1047,7 @@ export const getUnifiedPatients = async (req, res) => {
 
     const patients = await Patient.find(query)
       .populate("doctorId", "name email")
-      .select("name email phoneNumber doctorId createdAt")
+      .select("name email phoneNumber age doctorId createdAt")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)

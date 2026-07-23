@@ -6,6 +6,11 @@ import {
   deletePrescription,
   processVoicePrescription,
   getDrugAlternatives,
+  savePrescriptionTemplate,
+  getDoctorTemplates,
+  deletePrescriptionTemplate,
+  searchDoctorDrugs,
+  forceRefreshDoctorDrugs,
 } from "../controllers/prescriptionController.js";
 import { universalAuth } from "../middleware/universalAuth.js";
 import { requireRole } from "../middleware/rbacMiddleware.js";
@@ -68,6 +73,61 @@ router.get(
   universalAuth,
   requireRole(ROLES.DOCTOR),
   getDoctorPrescriptions,
+);
+
+/**
+ * POST /api/prescriptions/templates
+ * Save a new prescription template for the logged-in doctor
+ */
+router.post(
+  "/templates",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  savePrescriptionTemplate,
+);
+
+/**
+ * GET /api/prescriptions/templates
+ * Get all prescription templates for the logged-in doctor
+ */
+router.get(
+  "/templates",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  getDoctorTemplates,
+);
+
+/**
+ * DELETE /api/prescriptions/templates/:templateId
+ * Delete a prescription template for the logged-in doctor
+ */
+router.delete(
+  "/templates/:templateId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  deletePrescriptionTemplate,
+);
+
+/**
+ * GET /api/prescriptions/drugs/search
+ * Search the logged-in doctor's custom drug cache
+ */
+router.get(
+  "/drugs/search",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  searchDoctorDrugs,
+);
+
+/**
+ * POST /api/prescriptions/drugs/refresh
+ * Force a fresh AI-driven drug cache refresh for the logged-in doctor
+ */
+router.post(
+  "/drugs/refresh",
+  universalAuth,
+  requireRole(ROLES.DOCTOR),
+  forceRefreshDoctorDrugs,
 );
 
 /**
