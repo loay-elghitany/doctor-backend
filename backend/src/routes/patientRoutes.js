@@ -3,6 +3,7 @@ import {
   registerPatient,
   loginPatient,
   getPatientProfile,
+  getPatientById,
   updatePatientProfile,
   getUnifiedPatients,
   getPatientScannedPrescriptions,
@@ -24,6 +25,13 @@ router.post("/login", authLimiter, loginPatient);
 
 // /api/patients/me
 router.get("/me", universalAuth, requireRole(ROLES.PATIENT), getPatientProfile);
+
+router.get(
+  "/:patientId",
+  universalAuth,
+  requireRole(ROLES.DOCTOR, ROLES.SECRETARY),
+  getPatientById,
+);
 
 // /api/patients/:patientId
 router.put(

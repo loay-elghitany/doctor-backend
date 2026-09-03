@@ -492,6 +492,44 @@ export const getPatientProfile = async (req, res) => {
   }
 };
 
+export const getPatientById = async (req, res) => {
+  try {
+    const { patientId } = req.params;
+    if (!mongoose.isValidObjectId(patientId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid patient ID format",
+        data: null,
+      });
+    }
+
+    const patient = await Patient.findById(patientId)
+      .populate("doctorId", "name email")
+      .select("-password")
+      .lean();
+
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient not found",
+        data: null,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "Patient retrieved successfully",
+      data: patient,
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      data: null,
+    });
+  }
+};
+
 export const updatePatientProfile = async (req, res) => {
   try {
     const { patientId } = req.params;
